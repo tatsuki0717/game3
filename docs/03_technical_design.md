@@ -1,45 +1,46 @@
 # 03. 技術設計
 
+> **実装での変更点**（当初案からの差分）
+> - 描画は Phaser ではなく **素の DOM + CSS**（`src/ui/`）で実装した。カード・書類・帳簿など UI 部品が中心のゲームで、テキスト量が多く、DOM の方が日本語組版・レスポンシブ対応・自動テスト（Playwright）がしやすいため。
+> - マスターデータは JSON + zod ではなく **型付きの TypeScript モジュール**（`src/core/data/`）にした。コンパイル時に型検査されるので実行時スキーマ検証を省ける。
+> - シーンは `phase`（morning / counter / night / ending）で切り替える 1 ページ構成。
+> - 下記の設計原則（`core/` は描画非依存の純粋ロジック、シード付き乱数、アクション→reducer）はそのまま実装している。
+
 ## 1. 技術スタック
 
 | 用途 | 採用 | 理由 |
 |---|---|---|
 | 言語 | TypeScript | 型でデータ定義（品物・規則・イベント）を守れる |
-| 描画 / 入力 | Phaser 3 | 2D・ドラッグ&ドロップ・シーン管理が揃っている。ブラウザで即配布可能 |
+| 描画 / 入力 | DOM + CSS（フレームワークなし） | テキスト中心の UI。ブラウザで即配布可能 |
 | ビルド | Vite | 高速な開発サーバと HMR |
 | テスト | Vitest | ゲームロジックを Node 上でテスト |
-| データ | JSON（＋ zod でスキーマ検証） | 品物・客・規則・イベントを非エンジニアでも追加可能に |
+| データ | 型付き TypeScript モジュール | 品物・客・規則・イベントを宣言的に記述し、型で守る |
 | 配布 | Web（itch.io 等）→ 将来 Electron / Tauri で Steam | |
 
 **設計原則**：ゲームロジック（`core/`）は Phaser に一切依存しない純粋な TypeScript とし、描画層（`scenes/`, `ui/`）から分離する。これにより
 - ロジックを単体テスト・自動バランスシミュレーションできる
 - 将来エンジンを変えても `core/` を流用できる
 
-## 2. ディレクトリ構成
+## 2. ディレクトリ構成（実装）
 
 ```
 game3/
-├─ docs/                     企画・設計ドキュメント
-├─ data/                     マスターデータ（JSON）
-│  ├─ items/                 品目カタログ
-│  ├─ customers/             客テンプレート・ストーリー客
-│  ├─ rules/                 規則定義
-│  ├─ events/                ストーリー・ニュースイベント
-│  └─ days/                  日ごとのシナリオ定義
+├─ docs/                       企画・設計ドキュメント
+├─ index.html                  エントリ HTML
 ├─ src/
-│  ├─ core/                  ★ 純粋ロジック（Phaser 非依存）
-│  │  ├─ model/              型定義（Item, Customer, Loan ...）
-│  │  ├─ systems/            各システム（下記）
-│  │  ├─ rng.ts              シード付き乱数
-│  │  ├─ gameState.ts        状態ルート
-│  │  └─ actions.ts          状態遷移（reducer）
-│  ├─ data/                  JSON ローダ・zod スキーマ
-│  ├─ scenes/                Phaser シーン（Title, Morning, Counter, Ledger, Ending）
-│  ├─ ui/                    机・書類・道具・ダイアログ等の UI 部品
-│  └─ main.ts
-├─ tools/
-│  └─ simulate.ts            自動プレイによるバランス検証
-└─ tests/
+│  ├─ core/                    ★ 純粋ロジック（DOM 非依存）
+│  │  ├─ types.ts              型定義（Item, Customer, Loan, GameState ...）
+│  │  ├─ config.ts             バランス定数
+│  │  ├─ dates.ts              日付・和暦・金額表記
+│  │  ├─ rng.ts                シード付き乱数
+│  │  ├─ game.ts               アクションと状態遷移（reducer）
+│  │  ├─ data/                 マスターデータ（品目・規則・人名・日程/ニュース/投資・ストーリー）
+│  │  └─ systems/              生成・査定/照合・規則評価・交渉・経済（質札/販売/相場）
+│  ├─ ui/                      画面（タイトル/朝/窓口/夜/エンディング）、顔 SVG、ストア
+│  ├─ main.ts                  描画ループ・時計
+│  └─ style.css
+├─ tools/simulate.ts           ボットによるバランス検証
+└─ tests/core.test.ts          ユニットテスト
 ```
 
 ## 3. 状態管理
@@ -226,7 +227,7 @@ p(請け出し) = clamp( base[personality]
 }
 ```
 
-## 6. シーン構成（Phaser）
+## 6. 画面構成
 
 ```
 TitleScene → MorningScene（新聞・通達・規則帳更新・陳列）

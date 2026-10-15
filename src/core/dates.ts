@@ -37,15 +37,19 @@ export function ageOn(birth: string, today: string): number {
   return age;
 }
 
-const ERA_HEISEI = 1989;
-const ERA_SHOWA = 1926;
+const ERAS: { name: string; start: string; year: number }[] = [
+  { name: '平成', start: '1989-01-08', year: 1989 },
+  { name: '昭和', start: '1926-12-25', year: 1926 },
+  { name: '大正', start: '1912-07-30', year: 1912 },
+  { name: '明治', start: '1868-01-25', year: 1868 },
+];
 
 /** 和暦表記（平成3年11月1日） */
 export function toWareki(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
-  if (y >= ERA_HEISEI) return `平成${y - ERA_HEISEI + 1 === 1 ? '元' : y - ERA_HEISEI + 1}年${m}月${d}日`;
-  if (y >= ERA_SHOWA) return `昭和${y - ERA_SHOWA + 1}年${m}月${d}日`;
-  return `大正${y - 1911}年${m}月${d}日`;
+  const era = ERAS.find((e) => compareDate(date, e.start) >= 0) ?? ERAS[ERAS.length - 1];
+  const n = y - era.year + 1;
+  return `${era.name}${n === 1 ? '元' : n}年${m}月${d}日`;
 }
 
 export function formatClock(minute: number): string {

@@ -274,4 +274,5 @@ th { color: var(--muted); font-weight: 400; }
   .hud { gap: 0.8em; font-size: 0.85em; }
   .card { max-width: none; flex: 1 1 100%; }
   .portrait { width: 110px; }
+  .portrait svg { width: 100px; height: 120px; }
 }

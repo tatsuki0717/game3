@@ -38,6 +38,10 @@ describe('dates', () => {
     expect(dateOfDay(31)).toBe('1991-12-01');
     expect(toWareki('1991-11-01')).toBe('平成3年11月1日');
     expect(toWareki('1960-05-14')).toBe('昭和35年5月14日');
+    expect(toWareki('1909-11-24')).toBe('明治42年11月24日');
+    expect(toWareki('1916-04-29')).toBe('大正5年4月29日');
+    expect(toWareki('1989-01-07')).toBe('昭和64年1月7日');
+    expect(toWareki('1989-01-08')).toBe('平成元年1月8日');
   });
   it('computes age with birthday not yet reached', () => {
     expect(ageOn('1974-11-02', '1991-11-01')).toBe(16);
