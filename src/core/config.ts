@@ -20,6 +20,15 @@ export const CONFIG = {
   maxRateAfterCap: 0.09,
   rateCapDay: 12,
 
+  /** 追加借入：潮見信用金庫（手数料を上乗せして借金に加算） */
+  creditLimit: 200_000,
+  creditFee: 0.1,
+  creditMinReputation: 40,
+  creditMaxViolation: 5,
+  /** 追加借入：鮫島ファイナンス（審査なし・日利） */
+  sharkLimit: 400_000,
+  sharkDailyRate: 0.03,
+
   violationLimit: 10,
   startShelfSlots: 6,
 
@@ -30,7 +39,7 @@ export const CONFIG = {
   compareMinutes: 1,
 
   wholesaleRate: 0.65,
-  policeReward: 10_000,
+  policeReward: 8_000,
 
   rent: 5_000,
   food: 3_000,

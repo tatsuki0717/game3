@@ -10,7 +10,10 @@ import { Rng, hashSeed } from './rng';
 import { applyTool, compare } from './systems/appraisal';
 import { hadLegalReason, personKey, violations } from './systems/compliance';
 import { findLoan, interestOf, processDueLoans, simulateShopSales, updateMarket, wholesalePrice } from './systems/economy';
-import { makeDoc, makeItem, newId, perceivedValue, randomCustomer, randomPerson, repeatCustomer, roundPrice, trueValue } from './systems/generate';
+import {
+  assignTell, isSuspicious, makeDoc, makeItem, makeSuspicious, newId, perceivedValue, randomCustomer, randomPerson, repeatCustomer, roundPrice, trueValue,
+  type Anomaly,
+} from './systems/generate';
 import { pointOut, respondToOffer } from './systems/negotiation';
 import type {
   Category, Customer, Effects, EndingId, Expense, GameState, Session, ToolId,
@@ -31,7 +34,8 @@ export type Action =
   | { type: 'DISMISS' }
   | { type: 'CLOSE_SHOP' }
   | { type: 'TOGGLE_EXPENSE'; id: string }
-  | { type: 'PAY_DEBT'; amount: number }
+  | { type: 'PAY_DEBT'; amount: number; target?: 'main' | 'shark' }
+  | { type: 'BORROW'; lender: Lender; amount: number }
   | { type: 'SHELVE'; itemId: string; price: number }
   | { type: 'UNSHELVE'; itemId: string }
   | { type: 'WHOLESALE'; itemId: string }
@@ -39,13 +43,26 @@ export type Action =
   | { type: 'SET_RATE'; rate: number }
   | { type: 'END_NIGHT' };
 
+export type Lender = 'credit' | 'shark';
+
 export interface Result {
   state: GameState;
   /** 操作できなかったときの理由など、UI に一時表示する文 */
   message?: string;
 }
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
+
+/** 古いセーブを現在の形式に揃える。読めないものは null */
+export function migrate(raw: GameState): GameState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.version === 1) {
+    raw.creditBorrowed = 0;
+    raw.shark = 0;
+    raw.version = 2;
+  }
+  return raw.version === SAVE_VERSION ? raw : null;
+}
 
 export function newGame(seed: number): GameState {
   const market = Object.fromEntries(CATEGORIES.map((c) => [c, 1])) as Record<Category, number>;
@@ -62,6 +79,8 @@ export function newGame(seed: number): GameState {
     conscience: 0,
     violationPoints: 0,
     rate: CONFIG.defaultRate,
+    creditBorrowed: 0,
+    shark: 0,
     tools: ['loupe', 'scale'],
     upgrades: [],
     queue: [],
@@ -148,13 +167,19 @@ function apply(s: GameState, rng: Rng, a: Action): Inner {
     }
     case 'PAY_DEBT': {
       if (s.phase !== 'night') return fail('返済は夜に行う。');
-      const amount = Math.floor(Math.min(a.amount, s.debt, s.money - committedExpenses(s)));
+      const shark = a.target === 'shark';
+      const owed = shark ? s.shark : s.debt;
+      const amount = Math.floor(Math.min(a.amount, owed, s.money - committedExpenses(s)));
+      if (owed <= 0) return fail('その借金は残っていない。');
       if (amount <= 0) return fail('返済に回せるお金がない。');
       s.money -= amount;
-      s.debt -= amount;
-      s.ledger.push({ label: '借金の繰り上げ返済', amount: -amount });
+      if (shark) s.shark -= amount;
+      else s.debt -= amount;
+      s.ledger.push({ label: shark ? '鮫島ファイナンスへ返済' : '借金の繰り上げ返済', amount: -amount });
       return { message: `${yen(amount)} を返済した。` };
     }
+    case 'BORROW':
+      return borrow(s, a.lender, a.amount);
     case 'SHELVE': {
       const inv = s.inventory.find((i) => i.item.id === a.itemId);
       if (!inv) return fail('その品物はない。');
@@ -198,6 +223,40 @@ function apply(s: GameState, rng: Rng, a: Action): Inner {
     case 'END_NIGHT':
       return endNight(s, rng);
   }
+}
+
+/** 追加で借りられる残り枠と、借りられない理由 */
+export function borrowLimit(s: GameState, lender: Lender): { room: number; reason?: string } {
+  if (lender === 'credit') {
+    const room = Math.max(0, CONFIG.creditLimit - s.creditBorrowed);
+    if (s.reputation < CONFIG.creditMinReputation) return { room: 0, reason: `評判 ${CONFIG.creditMinReputation} 未満の店には貸せないそうだ。` };
+    if (s.violationPoints >= CONFIG.creditMaxViolation) return { room: 0, reason: '違反点の多い店には貸せないそうだ。' };
+    if (s.day >= CONFIG.totalDays) return { room: 0, reason: '最終日には貸付できないそうだ。' };
+    return { room, reason: room <= 0 ? '融資枠を使い切った。' : undefined };
+  }
+  const room = Math.max(0, CONFIG.sharkLimit - s.shark);
+  return { room, reason: room <= 0 ? 'これ以上は貸さねえ、と言われた。' : undefined };
+}
+
+function borrow(s: GameState, lender: Lender, amount: number): Inner {
+  if (s.phase === 'ending') return fail('ゲームは終了している。');
+  amount = Math.floor(amount / 10_000) * 10_000;
+  if (amount <= 0) return fail('借りる額を選んでほしい。');
+  const lim = borrowLimit(s, lender);
+  if (lim.reason) return fail(lim.reason);
+  if (amount > lim.room) return fail(`借りられるのはあと ${yen(lim.room)} までだ。`);
+  s.money += amount;
+  if (lender === 'credit') {
+    const fee = Math.round(amount * CONFIG.creditFee);
+    s.creditBorrowed += amount;
+    s.debt += amount + fee;
+    s.ledger.push({ label: '潮見信用金庫から借入', amount });
+    return { message: `信用金庫から ${yen(amount)} を借りた（手数料 ${yen(fee)} は借金に上乗せ）。` };
+  }
+  s.shark += amount;
+  s.ledger.push({ label: '鮫島ファイナンスから借入', amount });
+  s.conscience -= amount >= 200_000 ? 1 : 0;
+  return { message: `鮫島ファイナンスから ${yen(amount)} を借りた。日利 ${Math.round(CONFIG.sharkDailyRate * 100)}% だ…。` };
 }
 
 export function maxRate(s: GameState): number {
@@ -258,6 +317,12 @@ export function startDay(s: GameState): void {
   s.carryNotes = [];
 
   const headlines = updateMarket(s, rng);
+  if (s.shark > 0 && s.day > 1) {
+    const interest = Math.ceil((s.shark * CONFIG.sharkDailyRate) / 100) * 100;
+    s.shark += interest;
+    notes.push(`鮫島ファイナンスの利息 ${yen(interest)} が付いた（残高 ${yen(s.shark)}）。`);
+    if (s.shark >= 300_000) notes.push('店の前に黒い車が停まっている。鮫島の取り立て屋だ…。');
+  }
   if (s.day >= CONFIG.rateCapDay && s.rate > maxRate(s)) {
     s.rate = maxRate(s);
     notes.push(`法改正により、貸付利率を ${Math.round(s.rate * 100)}% に引き下げた。`);
@@ -372,6 +437,27 @@ function storyCustomer(s: GameState, rng: Rng, v: StoryVisit): Customer {
   return c;
 }
 
+/** その日の規則・道具で見抜ける「後ろ暗い事情」 */
+function availableAnomalies(s: GameState): Anomaly[] {
+  const list: Anomaly[] = ['fake', 'fake', 'stolen', 'stolen', 'expired', 'photo'];
+  if (s.day >= 2) list.push('photo');
+  if (s.day >= 5) list.push('minor_forged');
+  if (s.day >= 6) list.push('forged');
+  return list;
+}
+
+function ensureSuspicious(s: GameState, rng: Rng, queue: Customer[], min: number): void {
+  const today = dateOfDay(s.day);
+  let count = queue.filter((c) => isSuspicious(c, today)).length;
+  const clean = rng.shuffle(queue.filter((c) => !isSuspicious(c, today)));
+  const pool = availableAnomalies(s);
+  for (const c of clean) {
+    if (count >= min) break;
+    if (makeSuspicious(s, rng, c, rng.pick(pool))) count += 1;
+  }
+  for (const c of queue) if (!c.tell) assignTell(rng, c, today);
+}
+
 function buildQueue(s: GameState, rng: Rng, loanVisitors: Customer[]): Customer[] {
   const d = difficulty(s.day);
   let n = d.customers + (s.upgrades.includes('sign') ? 2 : 0);
@@ -379,6 +465,7 @@ function buildQueue(s: GameState, rng: Rng, loanVisitors: Customer[]): Customer[
   if (s.reputation < 30) n -= 2;
   const queue: Customer[] = [];
   for (let i = 0; i < n; i++) queue.push(randomCustomer(s, rng, d));
+  ensureSuspicious(s, rng, queue, d.minSuspicious);
 
   // 盗品はすべて手配書に載せる（＋無関係の手配も混ぜる）
   for (const c of queue) {
@@ -432,6 +519,7 @@ function nextCustomer(s: GameState): Inner {
     chat: [{ who: 'customer', text: c.greeting }],
     closed: false,
   };
+  if (c.tell) s.session.chat.push({ who: 'system', text: c.tell });
   const story = STORY_VISITS.find((v) => v.id === c.storyId);
   if (c.intent === 'special' && story?.lines) for (const line of story.lines) s.session.chat.push({ who: 'customer', text: line });
   if ((c.intent === 'pawn' || c.intent === 'sell') && c.item) {
@@ -787,6 +875,11 @@ function endNight(s: GameState, rng: Rng): Inner {
   } else s.overdraft = 0;
 
   if (s.day >= CONFIG.totalDays) {
+    if (s.shark > 0 && s.money > 0) {
+      const pay = Math.min(s.money, s.shark);
+      s.money -= pay;
+      s.shark -= pay;
+    }
     if (s.debt > 0 && s.money > 0) {
       const pay = Math.min(s.money, s.debt);
       s.money -= pay;
@@ -800,6 +893,7 @@ function endNight(s: GameState, rng: Rng): Inner {
 }
 
 export function finalEnding(s: GameState): EndingId {
+  if (s.shark > 0) return 'foreclosed';
   if (s.debt <= 0) return s.conscience < 0 || s.reputation < 40 ? 'cold_lender' : 'revival';
   return (s.reputation >= 70 && s.conscience >= 0) || s.flags.donated ? 'town_light' : 'closed';
 }

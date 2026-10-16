@@ -11,7 +11,7 @@ import type { Customer, DocKind, GameState, IdDoc, Session, ToolId } from '../co
 import { h, svgEl } from './dom';
 import { faceSvg } from './face';
 import { hud } from './screens';
-import { act, notify, toast, ui } from './store';
+import { act, notify, openModal, toast, ui } from './store';
 
 const DOC_LABEL: Record<DocKind, string> = {
   license: '運転免許証',
@@ -68,7 +68,6 @@ function useTool(tool: ToolId): void {
   }
   ui.pendingTool = ui.pendingTool === tool ? null : tool;
   ui.compareMode = false;
-  if (ui.pendingTool) toast(`${info.name}：品物か書類をクリック`);
   notify();
 }
 
@@ -169,7 +168,7 @@ function toolsTray(s: GameState): HTMLElement {
         class: `btn compare ${ui.compareMode ? 'active' : ''}`,
         disabled: !s.session || s.session.closed,
         onclick: () => { ui.compareMode = !ui.compareMode; ui.compareFirst = null; ui.pendingTool = null; notify(); },
-      }, ui.compareMode ? '🔗 照合モード中（2 項目をクリック）' : '🔗 照合'),
+      }, ui.compareMode ? '🔗 照合中…' : '🔗 照合'),
       ref('today', `📅 本日 ${toWareki(today)}`, 'today-chip'),
     ),
   );
@@ -198,7 +197,7 @@ function actionPanel(s: GameState): HTMLElement {
         ? h('p', { class: 'closing' }, '閉店時間だ。')
         : h('p', null, s.queue.length > 0 ? `店先に ${s.queue.length} 人並んでいる。` : 'もう客はいないようだ。'),
       !closing && s.queue.length > 0
-        ? h('button', { class: 'btn primary big', onclick: () => { ui.offer = ''; act({ type: 'NEXT_CUSTOMER' }); } }, '次の方、どうぞ')
+        ? h('button', { class: 'btn primary huge', onclick: () => { ui.offer = ''; act({ type: 'NEXT_CUSTOMER' }); } }, '次の方、どうぞ')
         : null,
       h('button', { class: 'btn', onclick: () => act({ type: 'CLOSE_SHOP' }) }, closing || s.queue.length === 0 ? '店を閉める' : '早めに店を閉める'),
     );
@@ -207,9 +206,9 @@ function actionPanel(s: GameState): HTMLElement {
   if (ses.closed) {
     const label = { deal: '取引成立', refused: 'お断りした', left: '客は帰っていった', reported: '通報した', choice: '' }[ses.outcome ?? 'choice'];
     return h('div', { class: 'panel actions' },
-      label ? h('p', { class: `outcome outcome-${ses.outcome}` }, label, ses.dealAmount ? `（${yen(ses.dealAmount)}）` : '') : null,
+      label ? h('p', { class: `outcome outcome-${ses.outcome}` }, label, ses.dealAmount ? h('b', null, yen(ses.dealAmount)) : null) : null,
       findingsList(ses),
-      h('button', { class: 'btn primary big', onclick: () => { ui.compareMode = false; ui.compareFirst = null; ui.pendingTool = null; act({ type: 'DISMISS' }); } }, '次へ'),
+      h('button', { class: 'btn primary huge', onclick: () => { ui.compareMode = false; ui.compareFirst = null; ui.pendingTool = null; act({ type: 'DISMISS' }); } }, '次へ'),
     );
   }
   if (c.intent === 'special') {
@@ -256,6 +255,7 @@ function actionPanel(s: GameState): HTMLElement {
       c.intent === 'pawn' ? h('small', null, `利率 ${Math.round(s.rate * 100)}% / ${CONFIG.loanTermDays}日`) : null,
     ),
     findingsList(ses),
+    ses.ask > s.money ? h('p', { class: 'cash-short' }, `手持ち ${yen(s.money)} では希望額に足りない。`, h('button', { class: 'btn small', onclick: () => openModal('borrow') }, '💴 借入')) : null,
     h('div', { class: 'offer-row' },
       h('span', { class: 'yen' }, '¥'), input,
       h('button', { class: 'btn primary', onclick: offer }, '提示'),
@@ -355,17 +355,27 @@ function catalog(s: GameState): HTMLElement {
 
 // ---------------------------------------------------------------- 画面
 
+let lastCustomerId: string | null = null;
+
 export function counterScreen(s: GameState): HTMLElement {
   const ses = s.session;
   const c = ses?.customer;
+  const entering = !!c && c.id !== lastCustomerId;
+  lastCustomerId = c?.id ?? null;
+  const leaving = !!ses?.closed;
   return h('div', { class: `screen counter ${ui.compareMode ? 'compare-on' : ''} ${ui.pendingTool ? 'tool-on' : ''}` },
     hud(s),
     h('div', { class: 'counter-grid' },
       h('div', { class: 'left' },
         h('div', { class: 'shopfront' },
-          h('div', { class: 'portrait' },
-            c ? ref('face', svgEl(faceSvg(c.person.face, { size: 130 })), 'face') : h('div', { class: 'empty-portrait' }, s.queue.length ? '…' : ''),
-            h('div', { class: 'queue' }, `待ち ${s.queue.length} 人`),
+          h('div', { class: 'scene' },
+            c
+              ? h('div', { class: `portrait ${entering ? 'enter' : ''} ${leaving ? 'leaving' : ''}` },
+                ref('face', svgEl(faceSvg(c.person.face, { size: 190 })), 'face'),
+                h('div', { class: 'nameplate' }, c.storyId && STORY_VISITS.some((v) => v.id === c.storyId && !v.sting) ? c.person.name : '来店客'),
+              )
+              : h('div', { class: 'portrait empty' }, s.queue.length && s.clock < CONFIG.closeMinute ? h('span', { class: 'queue-hint' }, '…') : null),
+            h('div', { class: 'queue' }, ...Array.from({ length: Math.min(8, s.queue.length) }, () => h('i', null)), h('span', null, `待ち ${s.queue.length} 人`)),
           ),
           h('div', { class: 'chat' },
             ...(ses?.chat ?? [{ who: 'system' as const, text: s.clock >= CONFIG.closeMinute ? '閉店の時間だ。' : '「次の方、どうぞ」で客を呼ぼう。' }]).map((l) =>
@@ -373,12 +383,14 @@ export function counterScreen(s: GameState): HTMLElement {
             ),
           ),
         ),
-        h('div', { class: 'desk' },
+        h('div', { class: `desk ${entering ? 'fresh' : ''}` },
           c ? [
             ...c.docs.map((d, i) => docCard(s, d, i, c)),
             itemCard(s, ses!),
             ticketCard(c),
           ] : h('div', { class: 'desk-empty' }, '作業机'),
+          ui.compareMode ? h('div', { class: 'mode-banner' }, ui.compareFirst ? `「${refLabel(ui.compareFirst)}」と比べる項目をクリック` : '照合モード：比べたい 2 項目をクリック（Esc で解除）') : null,
+          ui.pendingTool ? h('div', { class: 'mode-banner tool' }, `${TOOL_INFO[ui.pendingTool as ToolId].name}：品物か書類をクリック（Esc で解除）`) : null,
         ),
       ),
       h('div', { class: 'right' },

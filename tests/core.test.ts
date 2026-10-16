@@ -3,12 +3,13 @@ import { CONFIG } from '../src/core/config';
 import { ageOn, dateOfDay, toWareki } from '../src/core/dates';
 import { itemDef } from '../src/core/data/items';
 import { RULE_MAP } from '../src/core/data/rules';
-import { dispatch, newGame, type Action } from '../src/core/game';
+import { dispatch, migrate, newGame, type Action } from '../src/core/game';
 import { Rng } from '../src/core/rng';
 import { applyTool, compare } from '../src/core/systems/appraisal';
 import { evalCond, type TxContext } from '../src/core/systems/compliance';
 import { interestOf, redeemProbability } from '../src/core/systems/economy';
-import { makeDoc, makeItem, randomPerson } from '../src/core/systems/generate';
+import { isSuspicious, makeDoc, makeItem, randomPerson } from '../src/core/systems/generate';
+import { computeLayout } from '../src/ui/settings';
 import { respondToOffer } from '../src/core/systems/negotiation';
 import type { Customer, GameState, Session } from '../src/core/types';
 import { playthrough } from '../tools/simulate';
@@ -194,6 +195,66 @@ describe('game flow', () => {
     s = run(s, { type: 'END_NIGHT' });
     expect(s.phase).toBe('ending');
     expect(s.ending).toBe('foreclosed');
+  });
+});
+
+describe('suspicious customers', () => {
+  it('mixes at least three suspicious walk-ins into day 1', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const s = newGame(seed);
+      const today = dateOfDay(1);
+      expect(s.queue.filter((c) => !c.storyId && isSuspicious(c, today)).length).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+describe('borrowing', () => {
+  it('adds a credit-union loan with its fee to the debt', () => {
+    let s = run(newGame(20), { type: 'BEGIN_COUNTER' });
+    s = run(s, { type: 'BORROW', lender: 'credit', amount: 100_000 });
+    expect(s.money).toBe(CONFIG.startMoney + 100_000);
+    expect(s.debt).toBe(CONFIG.startDebt + 110_000);
+    const r = dispatch(s, { type: 'BORROW', lender: 'credit', amount: 200_000 });
+    expect(r.state).toBe(s);
+    expect(r.message).toMatch(/あと/);
+  });
+
+  it('refuses credit to a shop with a bad reputation', () => {
+    const s = { ...newGame(21), reputation: 10 };
+    expect(dispatch(s, { type: 'BORROW', lender: 'credit', amount: 50_000 }).message).toMatch(/評判/);
+  });
+
+  it('grows the loan-shark balance every morning and can be repaid at night', () => {
+    let s = run(newGame(22), { type: 'BORROW', lender: 'shark', amount: 100_000 }, { type: 'BEGIN_COUNTER' }, { type: 'CLOSE_SHOP' }, { type: 'END_NIGHT' });
+    expect(s.shark).toBe(103_000);
+    s = run(s, { type: 'BEGIN_COUNTER' }, { type: 'CLOSE_SHOP' }, { type: 'PAY_DEBT', target: 'shark', amount: 103_000 });
+    expect(s.shark).toBe(0);
+  });
+
+  it('migrates version-1 saves', () => {
+    const old = { ...newGame(23), version: 1 } as Record<string, unknown>;
+    delete old.shark;
+    delete old.creditBorrowed;
+    const s = migrate(old as never)!;
+    expect(s.shark).toBe(0);
+    expect(s.creditBorrowed).toBe(0);
+  });
+});
+
+describe('stage layout', () => {
+  const base = { resolution: 'auto' as const, fit: true, uiScale: 1, speed: 1, volume: 0, effects: true };
+  it('keeps the same logical height in auto mode and fits the window', () => {
+    const a = computeLayout(1920, 1080, base);
+    const b = computeLayout(1280, 720, base);
+    expect(a.h).toBe(b.h);
+    expect(a.w * a.scale).toBeCloseTo(1920, 0);
+  });
+  it('letterboxes fixed resolutions and never goes below the minimum size', () => {
+    const l = computeLayout(1000, 1000, { ...base, resolution: '1280x720' });
+    expect(l.w).toBe(1280);
+    expect(l.y).toBeGreaterThan(0);
+    const tiny = computeLayout(800, 450, { ...base, resolution: '1280x720', uiScale: 1.2 });
+    expect(tiny.w).toBeGreaterThanOrEqual(1180);
   });
 });
 

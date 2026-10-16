@@ -1,0 +1,41 @@
+{
+  "style": "Painterly Japanese adventure-game background art, 1991 Showa/Heisei era coastal town, warm lantern light against cold night blues, rich film grain, cinematic composition, no text, no letters, no watermark, no people unless stated.",
+  "images": [
+    {
+      "id": "title",
+      "file": "title.png",
+      "size": "1920x1080",
+      "prompt": "Night street of a declining Japanese harbor town in winter 1991. In the center, an old two-story wooden pawnshop (shichiya) with a lattice front, a dark indigo noren curtain and a glowing red paper lantern hanging at the left. A full moon over tiled rooftops, faint stars, wet asphalt reflecting the shop's amber light. Leave the upper-middle area calm and dark for a game logo."
+    },
+    {
+      "id": "shop",
+      "file": "shop.png",
+      "size": "1600x600",
+      "prompt": "Interior of an old Japanese pawnshop seen from behind the counter, facing the customer side. Dark wooden walls and shelves holding pawned goods: a vase, a mantel clock, a film camera, an electric guitar, folded kimono fabric, a sword rack. An indigo noren curtain in the middle, a small window at the right, a single hanging lamp casting warm light. The bottom quarter is the wooden counter top. Empty space in the center where a customer will stand."
+    },
+    {
+      "id": "morning",
+      "file": "morning.png",
+      "size": "1920x1080",
+      "prompt": "Top-down view of a worn wooden low table in a Japanese back room at early morning. Soft winter sunlight slanting through shoji screens creating diagonal light bars, a cup of green tea at the lower right, an abacus edge at the lower left. The center is empty table surface (a newspaper UI will be placed there). Subtle vignette."
+    },
+    {
+      "id": "night",
+      "file": "night.png",
+      "size": "1920x1080",
+      "prompt": "A pawnbroker's back office desk at night, seen from above at an angle. A brass desk lamp at the upper left casting a warm pool of light, an open ledger book, a wooden abacus at the lower right, scattered paper pawn tickets, a cash box. Most of the frame is dim and quiet so UI panels can sit on top."
+    },
+    {
+      "id": "ending_good",
+      "file": "ending_good.png",
+      "size": "1920x1080",
+      "prompt": "The same old Japanese pawnshop at dawn, warm golden sunrise over the harbor, townspeople's silhouettes gathering in front of the shop, the paper lantern still glowing, hopeful mood."
+    },
+    {
+      "id": "ending_bad",
+      "file": "ending_bad.png",
+      "size": "1920x1080",
+      "prompt": "The same old Japanese pawnshop in cold grey winter rain, metal shutter pulled down with a foreclosure notice taped on it (no readable text), the lantern unlit, empty street, melancholy mood."
+    }
+  ]
+}

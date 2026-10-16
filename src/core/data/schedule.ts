@@ -14,23 +14,26 @@ export interface Difficulty {
   repeat: number;
   noPhotoId: number;
   impostor: number;
+  /** 1 日に最低限まぜる「怪しい客」（偽物・盗品・書類不備など）の人数 */
+  minSuspicious: number;
 }
 
 export function difficulty(day: number): Difficulty {
   const t = Math.min(1, (day - 1) / 22);
   return {
-    customers: Math.round(7 + t * 7),
-    fake: day < 2 ? 0.05 : 0.1 + t * 0.1,
-    stolen: day < 2 ? 0 : 0.06 + t * 0.05,
-    expired: 0.04 + t * 0.02,
-    forged: day < 7 ? 0 : 0.03 + t * 0.04,
-    photoMismatch: day < 3 ? 0 : 0.03 + t * 0.03,
-    minor: day < 5 ? 0 : 0.05,
+    customers: Math.round(8 + t * 6),
+    fake: day < 2 ? 0.14 : 0.16 + t * 0.1,
+    stolen: day < 2 ? 0.06 : 0.09 + t * 0.05,
+    expired: 0.07 + t * 0.03,
+    forged: day < 6 ? 0 : 0.04 + t * 0.04,
+    photoMismatch: day < 2 ? 0.04 : 0.06 + t * 0.03,
+    minor: day < 5 ? 0 : 0.06,
     outsider: day < 8 ? 0.05 : 0.15,
-    blade: day < 10 ? 0.03 : 0.05,
+    blade: day < 10 ? 0.03 : 0.06,
     repeat: day < 15 ? 0 : 0.1,
-    noPhotoId: 0.03 + t * 0.01,
-    impostor: day < 9 ? 0 : 0.25,
+    noPhotoId: 0.04 + t * 0.02,
+    impostor: day < 4 ? 0 : day < 9 ? 0.15 : 0.25,
+    minSuspicious: day < 4 ? 3 : 4 + Math.round(t * 2),
   };
 }
 

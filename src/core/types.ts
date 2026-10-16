@@ -132,6 +132,8 @@ export interface Customer {
   impostor?: boolean;
   /** 本日 2 回目の来店（変装） */
   repeat?: boolean;
+  /** 挙動の描写（怪しい客ほど出やすいが、無実の客にも出る） */
+  tell?: string;
 }
 
 export type FindingKind =
@@ -285,6 +287,10 @@ export interface GameState {
   conscience: number;
   violationPoints: number;
   rate: number;
+  /** 信用金庫からの追加借入の累計（元金）。返済は借金残高に含まれる */
+  creditBorrowed: number;
+  /** 鮫島ファイナンス（闇金）の残高。毎朝利息が付く */
+  shark: number;
 
   tools: ToolId[];
   upgrades: string[];

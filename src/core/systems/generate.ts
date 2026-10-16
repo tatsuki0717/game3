@@ -4,7 +4,7 @@ import { CONFIG, CONDITION_FACTOR, DEFECT_FACTOR, FAKE_VALUE_FACTOR } from '../c
 import { addDays, ageOn, dateOfDay } from '../dates';
 import { ITEMS, itemDef } from '../data/items';
 import {
-  COMPANIES, FAMILY_NAMES, GIVEN_NAMES_F, GIVEN_NAMES_M, OTHER_CITIES, TOWN_DISTRICTS, greetingsFor,
+  COMPANIES, FAMILY_NAMES, GIVEN_NAMES_F, GIVEN_NAMES_M, NERVOUS_TELLS, OTHER_CITIES, SUSPICIOUS_TELLS, TOWN_DISTRICTS, greetingsFor,
 } from '../data/people';
 import { difficulty, type Difficulty } from '../data/schedule';
 import type { Rng } from '../rng';
@@ -241,7 +241,70 @@ export function randomCustomer(state: GameState, rng: Rng, d: Difficulty): Custo
     greeting: rng.pick(greetingsFor(intent, personality)),
   };
   setPrices(state, rng, c);
+  assignTell(rng, c, today);
   return c;
+}
+
+/** 客に後ろ暗いところ（偽物・盗品・書類の問題）があるか */
+export function isSuspicious(c: Customer, today: string): boolean {
+  if (c.item && (!c.item.authentic || c.item.stolen)) return true;
+  if (c.impostor || c.repeat) return true;
+  if (ageOn(c.person.birth, today) < 18) return true;
+  return c.docs.some((d) => d.forged || d.expiry < today || (d.photo && JSON.stringify(d.photo) !== JSON.stringify(c.person.face)) || d.name !== c.person.name || d.birth !== c.person.birth);
+}
+
+export function assignTell(rng: Rng, c: Customer, today: string): void {
+  if (isSuspicious(c, today)) c.tell = rng.chance(0.55) ? rng.pick(SUSPICIOUS_TELLS) : undefined;
+  else c.tell = rng.chance(0.12) ? rng.pick(c.personality === 'desperate' || c.personality === 'timid' ? NERVOUS_TELLS : SUSPICIOUS_TELLS) : undefined;
+}
+
+export type Anomaly = 'fake' | 'stolen' | 'expired' | 'photo' | 'forged' | 'minor_forged';
+
+/** 何の問題もない客に、後ろ暗い事情を 1 つ足す（その日の「怪しい客」の最低人数を保つため） */
+export function makeSuspicious(state: GameState, rng: Rng, c: Customer, anomaly: Anomaly): boolean {
+  const today = dateOfDay(state.day);
+  const main = c.docs[0];
+  switch (anomaly) {
+    case 'fake': {
+      const pool = ITEMS.filter((i) => i.category !== 'blade' && i.fakeHallmarks.length > 0);
+      const def = rng.weighted(pool, (i) => i.fakeRate);
+      c.item = makeItem(state, rng, def.id, { fake: true });
+      c.personality = rng.chance(0.7) ? 'liar' : 'regular';
+      c.greeting = rng.pick(greetingsFor(c.intent, c.personality));
+      break;
+    }
+    case 'stolen': {
+      const pool = ITEMS.filter((i) => i.category !== 'blade' && !!i.serialPrefix);
+      c.item = makeItem(state, rng, rng.pick(pool).id, { stolen: true });
+      if (rng.chance(0.5)) c.personality = rng.pick(['liar', 'aggressive'] as const);
+      c.greeting = rng.pick(greetingsFor(c.intent, c.personality));
+      break;
+    }
+    case 'expired':
+      main.expiry = addDays(today, -rng.int(1, 120));
+      break;
+    case 'photo':
+      if (!main.photo) return false;
+      main.photo = alterFace(rng, c.person.face);
+      break;
+    case 'forged':
+      main.forged = true;
+      break;
+    case 'minor_forged': {
+      if (!main.photo) return false;
+      const age = rng.int(15, 16);
+      const birth = `${Number(today.slice(0, 4)) - age - 1}${c.person.birth.slice(4)}`;
+      c.person = { ...c.person, birth, face: { ...c.person.face, wrinkles: false, hairColor: rng.int(0, 2) } };
+      for (const d of c.docs) d.birth = birth;
+      if (main.photo) main.photo = { ...c.person.face };
+      main.forged = true;
+      main.birth = `${Number(today.slice(0, 4)) - rng.int(20, 24)}${birth.slice(4)}`;
+      break;
+    }
+  }
+  setPrices(state, rng, c);
+  c.tell = rng.chance(0.6) ? rng.pick(SUSPICIOUS_TELLS) : undefined;
+  return true;
 }
 
 /** 同日 2 回目の来店（変装）。午前の客を元に作る */
@@ -263,6 +326,7 @@ export function repeatCustomer(state: GameState, rng: Rng, base: Customer): Cust
     finance: 0.2,
     greeting: '（帽子を目深にかぶっている）これ、お願いできますか。',
     repeat: true,
+    tell: rng.chance(0.5) ? rng.pick(SUSPICIOUS_TELLS) : undefined,
   };
   setPrices(state, rng, c);
   return c;
