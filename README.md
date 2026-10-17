@@ -35,7 +35,7 @@ npm run tauri build      # 配布用のインストーラを作成（src-tauri/t
 ```
 
 - 配布物は、ビルドした OS 向けのものだけ作られます。Windows 版は Windows 上で、macOS 版は macOS 上で `npm run tauri build` を実行してください。
-- セーブデータはブラウザ版と同じく WebView の localStorage に入ります。
+- セーブデータはブラウザ版と同じく WebView の localStorage に入ります。`tauri dev`（localhost）とビルド版では保存先が別なので、開発中のセーブはビルド版に引き継がれません。
 - アイコンは `src-tauri/icons/` にあり、現在は仮のものです。差し替えるときは `npx tauri icon <1024px 以上の正方形 PNG>` を実行します。
 - 窓の既定サイズは 1280×720（横長）です。縦に長くした窓では縦持ちの配置になります。
 
