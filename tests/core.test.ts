@@ -9,8 +9,8 @@ import { applyTool, compare } from '../src/core/systems/appraisal';
 import { evalCond, type TxContext } from '../src/core/systems/compliance';
 import { bankLimit, interestOf, redeemProbability } from '../src/core/systems/economy';
 import { makeDoc, makeItem, randomPerson } from '../src/core/systems/generate';
-import { respondToOffer } from '../src/core/systems/negotiation';
-import type { Customer, GameState, Session } from '../src/core/types';
+import { pointOut, respondToOffer } from '../src/core/systems/negotiation';
+import type { Customer, Finding, GameState, Session } from '../src/core/types';
 import { playthrough } from '../tools/simulate';
 import { ICON_ROWS } from '../src/ui/pixel';
 
@@ -310,5 +310,29 @@ describe('balance', () => {
   it('a naive bot that pays any asking price goes under', () => {
     const s = playthrough(2000, 'naive');
     expect(['foreclosed', 'revoked', 'closed']).toContain(s.ending);
+  });
+});
+
+describe('expired ID', () => {
+  const expired: Finding = { key: 'doc_expired:0', kind: 'doc_expired', label: '身分証の期限切れ', pointable: true, reportable: false };
+
+  it('makes the customer produce a second card when the expiry is pointed out', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    const spare = makeDoc(new Rng(3), c.person, 'license', dateOfDay(s.day));
+    c.spareDoc = spare;
+    const r = pointOut(sessionFor(s, c), expired, new Rng(1));
+    expect(r.fled).toBe(false);
+    expect(c.docs).toHaveLength(2);
+    expect(c.docs[1]).toEqual(spare);
+    expect(c.spareDoc).toBeUndefined();
+  });
+
+  it('walks out when there is no second card', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    const r = pointOut(sessionFor(s, c), expired, new Rng(1));
+    expect(r.fled).toBe(true);
+    expect(c.docs).toHaveLength(1);
   });
 });
