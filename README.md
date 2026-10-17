@@ -22,6 +22,23 @@ npm run simulate -- 100        # ボットで 100 回プレイしてバランス
 
 進行は自動でブラウザに保存されます（タイトル画面の「続きから」）。
 
+## デスクトップアプリ（Tauri）
+
+同じゲームを [Tauri](https://tauri.app/) で包んだデスクトップアプリとして起動・配布できます。ブラウザ版のコードをそのまま使い、窓の中で表示します（`src-tauri/`）。
+
+前提：Node.js と npm、Rust 1.90 以上（rustup）、OS ごとの Tauri 依存（[公式の前提条件](https://tauri.app/start/prerequisites/)）。Linux では `libwebkit2gtk-4.1-dev` などが必要です。
+
+```bash
+npm install
+npm run tauri dev        # デスクトップ窓で開発（変更は即反映）
+npm run tauri build      # 配布用のインストーラを作成（src-tauri/target/release/bundle/）
+```
+
+- 配布物は、ビルドした OS 向けのものだけ作られます。Windows 版は Windows 上で、macOS 版は macOS 上で `npm run tauri build` を実行してください。
+- セーブデータはブラウザ版と同じく WebView の localStorage に入ります。
+- アイコンは `src-tauri/icons/` にあり、現在は仮のものです。差し替えるときは `npx tauri icon <1024px 以上の正方形 PNG>` を実行します。
+- 窓の既定サイズは 1280×720（横長）です。縦に長くした窓では縦持ちの配置になります。
+
 ## ドキュメント
 
 1. [企画書](docs/01_concept.md) — コンセプト、世界観、コア体験、勝敗条件
