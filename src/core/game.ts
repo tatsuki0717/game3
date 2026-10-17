@@ -13,7 +13,7 @@ import { findLoan, interestOf, processDueLoans, simulateShopSales, updateMarket,
 import { makeDoc, makeItem, newId, perceivedValue, randomCustomer, randomPerson, repeatCustomer, roundPrice, trueValue } from './systems/generate';
 import { pointOut, respondToOffer } from './systems/negotiation';
 import type {
-  Category, Customer, Effects, EndingId, Expense, GameState, Session, ToolId,
+  Category, Customer, DayLog, Effects, EndingId, Expense, GameState, Session, ToolId,
 } from './types';
 
 export type Action =
@@ -84,9 +84,19 @@ export function newGame(seed: number): GameState {
     scheduled: [],
     overdraft: 0,
     history: [],
+    todayLog: emptyLog(),
   };
   startDay(state);
   return state;
+}
+
+function emptyLog(): DayLog {
+  return { deals: 0, reports: 0, refused: 0, walkouts: 0 };
+}
+
+/** 古いセーブを途中から続けた日は記録が欠けて不正確になるので、翌朝まで記録しない */
+function logOutcome(s: GameState, key: keyof DayLog): void {
+  if (s.todayLog) s.todayLog[key] += 1;
 }
 
 export function dispatch(prev: GameState, action: Action): Result {
@@ -250,6 +260,7 @@ export function startDay(s: GameState): void {
   s.phase = 'morning';
   s.clock = CONFIG.openMinute;
   s.served = 0;
+  s.todayLog = emptyLog();
   s.todayVisitors = [];
   s.ledger = [];
   s.session = null;
@@ -454,6 +465,7 @@ function useTool(s: GameState, tool: ToolId, target: string): Inner {
   if (!ses) return fail('応対中の客がいない。');
   const r = applyTool(s, ses, tool, target);
   if (!r.ok) return fail(r.message);
+  if (r.revealed.length > 0 && r.revealed.every((k) => ses.revealed.includes(k))) return fail('それはもう調べた。');
   s.clock += r.minutes;
   for (const k of r.revealed) if (!ses.revealed.includes(k)) ses.revealed.push(k);
   for (const f of r.findings) if (!ses.findings.some((x) => x.key === f.key)) ses.findings.push(f);
@@ -464,8 +476,11 @@ function useTool(s: GameState, tool: ToolId, target: string): Inner {
 function doCompare(s: GameState, a: string, b: string): Inner {
   const ses = open(s);
   if (!ses) return fail('応対中の客がいない。');
+  const pair = [a, b].sort().join('|');
+  if (ses.compared?.includes(pair)) return fail('それはもう照合した。');
   const r = compare(s, ses, a, b);
   if (r.invalid) return fail(r.message);
+  (ses.compared ??= []).push(pair);
   s.clock += CONFIG.compareMinutes;
   if (r.finding && !ses.findings.some((x) => x.key === r.finding!.key)) ses.findings.push(r.finding);
   ses.chat.push({ who: 'system', text: (r.match ? '✔ ' : '✖ ') + r.message });
@@ -487,6 +502,7 @@ function doPoint(s: GameState, rng: Rng, key: string): Inner {
   if (r.fled) {
     ses.closed = true;
     ses.outcome = 'left';
+    logOutcome(s, 'walkouts');
   }
   return {};
 }
@@ -507,6 +523,7 @@ function doOffer(s: GameState, rng: Rng, amount: number): Inner {
   if (r.kind === 'leave') {
     ses.closed = true;
     ses.outcome = 'left';
+    logOutcome(s, 'walkouts');
     s.reputation = clamp(s.reputation - 1, 0, 100);
     return {};
   }
@@ -521,6 +538,7 @@ function closeDeal(s: GameState, ses: Session, amount: number): void {
   ses.closed = true;
   ses.outcome = 'deal';
   ses.dealAmount = amount;
+  logOutcome(s, 'deals');
   s.money -= amount;
 
   const story = STORY_VISITS.find((v) => v.id === c.storyId);
@@ -575,6 +593,7 @@ function acceptRequest(s: GameState): Inner {
   if (!loan || loan.status !== 'active') return fail('その質札は無効だ。');
   ses.closed = true;
   ses.outcome = 'deal';
+  logOutcome(s, 'deals');
   const name = itemDef(loan.item.defId).name;
   const interest = interestOf(loan);
   if (c.intent === 'redeem') {
@@ -615,6 +634,7 @@ function refuse(s: GameState, rng: Rng): Inner {
   if (c.intent === 'special') return fail('返事を選んでほしい。');
   ses.closed = true;
   ses.outcome = 'refused';
+  logOutcome(s, 'refused');
   ses.chat.push({ who: 'player', text: '申し訳ありませんが、お取り引きできません。' });
   const legal = hadLegalReason(s, c);
   if (c.ticket) {
@@ -646,6 +666,7 @@ function report(s: GameState): Inner {
   if (!reportable) return fail('通報する根拠が見つかっていない。');
   ses.closed = true;
   ses.outcome = 'reported';
+  logOutcome(s, 'reports');
   s.money += CONFIG.policeReward;
   s.reputation = clamp(s.reputation + 1, 0, 100);
   s.conscience += 1;

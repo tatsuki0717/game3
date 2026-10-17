@@ -9,7 +9,7 @@ import { STORY_VISITS } from '../core/data/story';
 import { refLabel } from '../core/systems/appraisal';
 import type { Customer, DocKind, GameState, IdDoc, Session, ToolId } from '../core/types';
 import { h, svgEl } from './dom';
-import { faceSvg } from './face';
+import { faceSvg, type Mood } from './face';
 import { hud } from './screens';
 import { act, notify, toast, ui } from './store';
 
@@ -26,6 +26,8 @@ function refClick(ref: string): void {
   if (!ui.compareMode) return;
   if (!ui.compareFirst) {
     ui.compareFirst = ref;
+    // シリアルを選んだら手配書を開いて相手を探しやすくする（刻印・重量の相手は机上のカタログ控えにある）
+    if (ref === 'item.serial') ui.refTab = 'stolen';
     notify();
     return;
   }
@@ -148,26 +150,109 @@ function ticketCard(c: Customer): HTMLElement | null {
   );
 }
 
+/** 申告された品目のカタログ控え。照合の相手を机の上に置いておく。 */
+function catalogCard(s: GameState, c: Customer): HTMLElement | null {
+  if (!c.item) return null;
+  const d = itemDef(c.item.defId);
+  return h('div', { class: 'card catalog-card' },
+    h('div', { class: 'doc-head' }, '品目カタログ（控え）', h('small', null, CATEGORY_LABEL[d.category])),
+    fact('品名', d.name),
+    fact('刻印', ref('catalog.hallmark', d.hallmark, 'mono')),
+    fact('重量', ref('catalog.weight', `${d.weightG} g`, 'mono')),
+    fact('素材', ref('catalog.material', MATERIAL_LABEL[d.material])),
+    fact('相場', h('span', null, yen(catalogPrice(s, d.id)), h('small', { class: 'muted' }, '（新品同様）'))),
+  );
+}
+
+const STAMP: Record<NonNullable<Session['outcome']>, string> = {
+  deal: '成立',
+  refused: '謝絶',
+  left: '退店',
+  reported: '通報',
+  choice: '',
+};
+
+/** 応対が終わったときに机に押す判子。アニメーションは最初の描画だけ。 */
+function stamp(ses: Session): HTMLElement | null {
+  const label = ses.closed && ses.outcome ? STAMP[ses.outcome] : '';
+  if (!label) return null;
+  const fresh = ui.stampFor !== ses.customer.id;
+  ui.stampFor = ses.customer.id;
+  return h('div', { class: `stamp stamp-${ses.outcome} ${fresh ? 'fresh' : ''}` }, label);
+}
+
+const DISHONEST_FINDINGS = new Set(['fake_hallmark', 'fake_weight', 'fake_material', 'fake_purity', 'stolen', 'doc_forged', 'photo_mismatch', 'name_mismatch', 'birth_mismatch', 'ticket_mismatch']);
+
+function moodOf(ses: Session): Mood {
+  const c = ses.customer;
+  if (ses.closed) {
+    switch (ses.outcome) {
+      case 'deal': return 'happy';
+      case 'left': return 'angry';
+      case 'reported': return 'shock';
+      case 'refused': return c.personality === 'desperate' ? 'sad' : 'angry';
+      default: return 'neutral';
+    }
+  }
+  if (ses.findings.some((f) => DISHONEST_FINDINGS.has(f.kind))) return 'nervous';
+  if (c.patience > 0 && ses.patience / c.patience <= 0.5) return 'angry';
+  if (c.personality === 'desperate') return 'sad';
+  return 'neutral';
+}
+
+/** 客が入ってきた最初の描画だけ登場アニメーションを付ける */
+function arriving(id: string): boolean {
+  const fresh = ui.faceFor !== id;
+  ui.faceFor = id;
+  return fresh;
+}
+
+function patienceMeter(ses: Session): HTMLElement | null {
+  const c = ses.customer;
+  if (c.intent !== 'pawn' && c.intent !== 'sell') return null;
+  const max = Math.max(1, c.patience);
+  const left = ses.closed && ses.outcome === 'left' ? 0 : Math.max(0, ses.patience);
+  return h('div', { class: 'patience', title: '客の機嫌。低い額を提示し続けると帰ってしまう。' },
+    h('span', null, '機嫌'),
+    ...Array.from({ length: max }, (_, i) => h('i', { class: i < left ? 'on' : '' })),
+  );
+}
+
 // ---------------------------------------------------------------- 右側パネル
+
+/** 品物に対して道具を使い終えたか（UV は書類にも使えるので品物分だけ見る） */
+const TOOL_REVEALS: Record<ToolId, string> = {
+  loupe: 'item.hallmark',
+  scale: 'item.weight',
+  magnet: 'item.magnetic',
+  tester: 'item.works',
+  uv: 'item.uv',
+  acid: 'item.purity',
+};
 
 function toolsTray(s: GameState): HTMLElement {
   const today = dateOfDay(s.day);
+  const ses = s.session;
   return h('div', { class: 'tray' },
     h('div', { class: 'tray-tools' },
-      ...s.tools.map((t) => {
+      ...s.tools.map((t, i) => {
         const info = TOOL_INFO[t];
+        const used = !!ses?.revealed.includes(TOOL_REVEALS[t]);
         return h('button', {
-          class: `tool ${ui.pendingTool === t ? 'active' : ''}`,
-          disabled: !s.session || s.session.closed,
-          title: `${info.name}（${info.minutes} 分）`,
+          class: `tool ${ui.pendingTool === t ? 'active' : ''} ${used ? 'used' : ''}`,
+          disabled: !ses || ses.closed || (info.target === 'item' && (!ses.customer.item || used)),
+          title: `${info.name}（${info.minutes} 分）［${i + 1}］`,
+          'data-key': `tool-${i + 1}`,
           onclick: () => useTool(t),
-        }, h('span', { class: 'tool-emoji' }, info.emoji), h('span', null, info.name), h('small', null, `${info.minutes}分`));
+        }, h('span', { class: 'tool-emoji' }, info.emoji), h('span', null, info.name), h('small', null, used ? '✓ 済' : `${info.minutes}分`), h('kbd', null, String(i + 1)));
       }),
     ),
     h('div', { class: 'tray-row' },
       h('button', {
         class: `btn compare ${ui.compareMode ? 'active' : ''}`,
-        disabled: !s.session || s.session.closed,
+        disabled: !ses || ses.closed,
+        'data-key': 'compare',
+        title: '照合モード［C］',
         onclick: () => { ui.compareMode = !ui.compareMode; ui.compareFirst = null; ui.pendingTool = null; notify(); },
       }, ui.compareMode ? '🔗 照合モード中（2 項目をクリック）' : '🔗 照合'),
       ref('today', `📅 本日 ${toWareki(today)}`, 'today-chip'),
@@ -198,9 +283,9 @@ function actionPanel(s: GameState): HTMLElement {
         ? h('p', { class: 'closing' }, '閉店時間だ。')
         : h('p', null, s.queue.length > 0 ? `店先に ${s.queue.length} 人並んでいる。` : 'もう客はいないようだ。'),
       !closing && s.queue.length > 0
-        ? h('button', { class: 'btn primary big', onclick: () => { ui.offer = ''; act({ type: 'NEXT_CUSTOMER' }); } }, '次の方、どうぞ')
+        ? h('button', { class: 'btn primary big', 'data-key': 'next', onclick: () => { ui.offer = ''; act({ type: 'NEXT_CUSTOMER' }); } }, '次の方、どうぞ', h('kbd', null, 'Enter'))
         : null,
-      h('button', { class: 'btn', onclick: () => act({ type: 'CLOSE_SHOP' }) }, closing || s.queue.length === 0 ? '店を閉める' : '早めに店を閉める'),
+      h('button', { class: `btn ${closing || s.queue.length === 0 ? 'primary big' : ''}`, 'data-key': closing || s.queue.length === 0 ? 'next' : undefined, onclick: () => act({ type: 'CLOSE_SHOP' }) }, closing || s.queue.length === 0 ? '店を閉める' : '早めに店を閉める'),
     );
   }
   const c = ses.customer;
@@ -209,7 +294,7 @@ function actionPanel(s: GameState): HTMLElement {
     return h('div', { class: 'panel actions' },
       label ? h('p', { class: `outcome outcome-${ses.outcome}` }, label, ses.dealAmount ? `（${yen(ses.dealAmount)}）` : '') : null,
       findingsList(ses),
-      h('button', { class: 'btn primary big', onclick: () => { ui.compareMode = false; ui.compareFirst = null; ui.pendingTool = null; act({ type: 'DISMISS' }); } }, '次へ'),
+      h('button', { class: 'btn primary big', 'data-key': 'next', onclick: () => { ui.compareMode = false; ui.compareFirst = null; ui.pendingTool = null; act({ type: 'DISMISS' }); } }, '次へ', h('kbd', null, 'Enter')),
     );
   }
   if (c.intent === 'special') {
@@ -322,10 +407,16 @@ function refBody(s: GameState): HTMLElement {
   }
 }
 
+/** カタログに載せる相場（新品同様の価格 × 相場係数、千円単位） */
+function catalogPrice(s: GameState, defId: string): number {
+  const d = itemDef(defId);
+  return Math.round((d.basePrice * s.market[d.category]) / 1000) * 1000;
+}
+
 function catalogEntry(s: GameState, defId: string, current: boolean): HTMLElement {
   const d = itemDef(defId);
   const m = s.market[d.category];
-  const price = Math.round((d.basePrice * m) / 1000) * 1000;
+  const price = catalogPrice(s, defId);
   return h('div', { class: `cat-entry ${current ? 'current' : ''}` },
     h('div', { class: 'cat-name' }, h('span', null, d.emoji), h('b', null, d.name), h('small', null, CATEGORY_LABEL[d.category])),
     h('div', { class: 'cat-facts' },
@@ -364,7 +455,8 @@ export function counterScreen(s: GameState): HTMLElement {
       h('div', { class: 'left' },
         h('div', { class: 'shopfront' },
           h('div', { class: 'portrait' },
-            c ? ref('face', svgEl(faceSvg(c.person.face, { size: 130 })), 'face') : h('div', { class: 'empty-portrait' }, s.queue.length ? '…' : ''),
+            c ? ref('face', svgEl(faceSvg(c.person.face, { size: 130, mood: moodOf(ses!) })), `face ${arriving(c.id) ? 'arrive' : ''}`) : h('div', { class: 'empty-portrait' }, s.queue.length ? '…' : ''),
+            ses ? patienceMeter(ses) : null,
             h('div', { class: 'queue' }, `待ち ${s.queue.length} 人`),
           ),
           h('div', { class: 'chat' },
@@ -377,7 +469,9 @@ export function counterScreen(s: GameState): HTMLElement {
           c ? [
             ...c.docs.map((d, i) => docCard(s, d, i, c)),
             itemCard(s, ses!),
+            catalogCard(s, c),
             ticketCard(c),
+            stamp(ses!),
           ] : h('div', { class: 'desk-empty' }, '作業机'),
         ),
       ),

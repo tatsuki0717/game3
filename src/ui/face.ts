@@ -3,8 +3,15 @@ import type { FaceParts } from '../core/types';
 const SKIN = ['#f3d2b3', '#e8b98f', '#d19c6e', '#a8754d'];
 const HAIR = ['#1d1a18', '#3b2a1e', '#6b4a2b', '#8d8d8d', '#d9d9d9'];
 
+/**
+ * 窓口での表情。写真と見比べる眉・口などのパーツは変えず、汗・赤面・涙などの記号を重ねるだけにする
+ * （表情でパーツが変わると、正直な客まで写真と別人に見えてしまう）。
+ */
+export type Mood = 'neutral' | 'happy' | 'angry' | 'nervous' | 'sad' | 'shock';
+
 /** 顔パーツから SVG 文字列を作る。写真と本人の比較に使うので、パーツ差が目で分かるようにする。 */
-export function faceSvg(f: FaceParts, opts: { size?: number; photo?: boolean } = {}): string {
+export function faceSvg(f: FaceParts, opts: { size?: number; photo?: boolean; mood?: Mood } = {}): string {
+  const mood = opts.photo ? 'neutral' : opts.mood ?? 'neutral';
   const size = opts.size ?? 120;
   const skin = SKIN[f.skin % SKIN.length];
   const hair = HAIR[f.hairColor % HAIR.length];
@@ -69,6 +76,14 @@ export function faceSvg(f: FaceParts, opts: { size?: number; photo?: boolean } =
   if (f.beard === 1) parts.push(`<path d="M40 74 Q50 70 60 74 L58 76 Q50 73 42 76 Z" fill="${hair}"/>`);
   if (f.beard === 2) parts.push(`<path d="M30 70 Q32 92 50 94 Q68 92 70 70 Q64 86 50 86 Q36 86 30 70 Z" fill="${hair}"/>`);
   parts.push(mouths[f.mouth % mouths.length]);
+  if (mood === 'angry') {
+    parts.push('<ellipse cx="34" cy="68" rx="6" ry="3" fill="#e0505044"/><ellipse cx="66" cy="68" rx="6" ry="3" fill="#e0505044"/>');
+    parts.push('<path d="M70 30 l6 0 M73 27 l0 6 M68 27 l3 3 M78 33 l-3 -3" stroke="#c0392b" stroke-width="2" stroke-linecap="round"/>');
+  }
+  if (mood === 'nervous') parts.push('<path d="M76 40 Q72 48 76 51 Q80 48 76 40 Z" fill="#8fd3ff" stroke="#3b8cc0" stroke-width="0.8"/>');
+  if (mood === 'sad') parts.push('<path d="M40 61 Q37 68 40 71 Q43 68 40 61 Z" fill="#8fd3ff" stroke="#3b8cc0" stroke-width="0.6"/>');
+  if (mood === 'shock') parts.push('<path d="M22 24 l-6 -6 M30 18 l-3 -8 M78 24 l6 -6 M70 18 l3 -8" stroke="#fff" stroke-width="2" stroke-linecap="round"/><rect x="28" y="40" width="44" height="10" fill="#4a6fa544"/>');
+  if (mood === 'happy') parts.push('<ellipse cx="34" cy="68" rx="5" ry="2.6" fill="#ff8a8a55"/><ellipse cx="66" cy="68" rx="5" ry="2.6" fill="#ff8a8a55"/>');
   if (f.glasses) {
     parts.push('<g stroke="#222" stroke-width="1.6" fill="#ffffff22"><circle cx="40" cy="56" r="7"/><circle cx="60" cy="56" r="7"/><path d="M47 56 L53 56"/></g>');
   }

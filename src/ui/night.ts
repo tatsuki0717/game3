@@ -7,6 +7,7 @@ import { UPGRADES } from '../core/data/schedule';
 import { committedExpenses, maxRate, shelfSlots } from '../core/game';
 import { interestOf, saleProbability, shopperValue, wholesalePrice } from '../core/systems/economy';
 import type { GameState, InventoryItem } from '../core/types';
+import { debtMeter, historyChart } from './chart';
 import { h } from './dom';
 import { hud } from './screens';
 import { act } from './store';
@@ -48,6 +49,15 @@ function inventoryRow(s: GameState, inv: InventoryItem): HTMLElement {
   );
 }
 
+function nextDueText(s: GameState): string {
+  const next = Object.entries(CONFIG.installments).map(([d, v]) => [Number(d), v] as const).find(([d]) => d >= s.day);
+  if (next) {
+    const days = next[0] - s.day;
+    return `次の定期返済：${days === 0 ? '今夜' : `${days} 日後（${next[0]} 日目の夜）`}に ${yen(Math.min(next[1], s.debt))}`;
+  }
+  return `最終返済：${CONFIG.totalDays} 日目の夜に残額 ${yen(s.debt)}`;
+}
+
 export function nightScreen(s: GameState): HTMLElement {
   const income = s.ledger.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
   const outgo = s.ledger.filter((l) => l.amount < 0).reduce((a, l) => a + l.amount, 0);
@@ -60,9 +70,29 @@ export function nightScreen(s: GameState): HTMLElement {
   const familyState = f.sick ? '祖母が寝込んでいる' : f.hunger > 0 ? 'お腹を空かせている' : f.cold > 0 ? '寒がっている' : '元気';
   let debtDraft = '';
 
+  const log = s.todayLog;
+  const stat = (label: string, value: string) => h('div', { class: 'stat' }, h('span', null, label), h('b', null, value));
+
   return h('div', { class: 'screen night' },
     hud(s),
     h('div', { class: 'night-grid' },
+      h('section', { class: 'panel wide report' },
+        h('h3', null, `${s.day} 日目の日報`),
+        h('div', { class: 'stats' },
+          stat('応対', `${s.served} 人`),
+          log ? stat('成立', `${log.deals} 件`) : null,
+          log ? stat('通報', `${log.reports} 件`) : null,
+          log ? stat('断った・帰られた', `${log.refused + log.walkouts} 人`) : null,
+          stat('本日の収支', `${income + outgo >= 0 ? '+' : ''}${yen(income + outgo)}`),
+        ),
+        h('div', { class: 'report-grid' },
+          h('div', null,
+            debtMeter(s),
+            h('p', { class: 'muted small' }, nextDueText(s)),
+          ),
+          historyChart(s),
+        ),
+      ),
       h('section', { class: 'panel' },
         h('h3', null, '本日の帳簿'),
         h('ul', { class: 'ledger' },
