@@ -34,7 +34,9 @@ npm run tauri dev        # デスクトップ窓で開発（変更は即反映�
 npm run tauri build      # 配布用のインストーラを作成（src-tauri/target/release/bundle/）
 ```
 
-- 配布物は、ビルドした OS 向けのものだけ作られます。Windows 版は Windows 上で、macOS 版は macOS 上で `npm run tauri build` を実行してください。
+- 配布物は、ビルドした OS 向けのものだけ作られます。Windows 版は Windows 上で `npm run tauri build` を実行してください。
+- **macOS 版**は GitHub Actions でビルドします。Actions タブ →「Build macOS app」→「Run workflow」を実行し、完了した run の Artifacts から `nanatsuya-macos`（Universal の .dmg、Apple Silicon と Intel の両方で動作）をダウンロードします。
+  - Apple の開発者証明書で署名・公証していないため、初回起動時に「開発元を確認できない」と表示されます。Finder で App を右クリック →「開く」で起動できます。ターミナルなら `xattr -dr com.apple.quarantine /Applications/Nanatsuya.app` を実行してください。
 - セーブデータはブラウザ版と同じく WebView の localStorage に入ります。`tauri dev`（localhost）とビルド版では保存先が別なので、開発中のセーブはビルド版に引き継がれません。
 - アイコンは `src-tauri/icons/` にあり、現在は仮のものです。差し替えるときは `npx tauri icon <1024px 以上の正方形 PNG>` を実行します。
 - 窓の既定サイズは 1280×720（横長）です。縦に長くした窓では縦持ちの配置になります。
