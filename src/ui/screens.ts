@@ -5,8 +5,10 @@ import { dateOfDay, formatClock, toWareki, yen } from '../core/dates';
 import { CATEGORIES, CATEGORY_LABEL } from '../core/data/items';
 import { activeRules } from '../core/data/rules';
 import type { EndingId, GameState } from '../core/types';
+import { debtMeter, historyChart } from './chart';
 import { h } from './dom';
-import { act, clearSave, continueGame, loadSave, startNew, toTitle, ui } from './store';
+import { isMuted, toggleMute } from './sound';
+import { act, clearSave, continueGame, loadSave, notify, startNew, toTitle, ui } from './store';
 
 export function hud(s: GameState): HTMLElement {
   const pts = Math.min(CONFIG.violationLimit, s.violationPoints);
@@ -18,6 +20,12 @@ export function hud(s: GameState): HTMLElement {
     h('div', { class: 'hud-stat' }, h('label', null, '評判'), h('b', null, `${s.reputation}`)),
     h('div', { class: 'hud-stat', title: `${CONFIG.violationLimit} 点で営業許可取消` }, h('label', null, '違反点'),
       h('span', { class: 'pips' }, ...Array.from({ length: CONFIG.violationLimit }, (_, i) => h('i', { class: i < pts ? 'on' : '' })))),
+    h('button', {
+      class: 'hud-mute',
+      title: isMuted() ? '効果音をオンにする' : '効果音をオフにする',
+      'aria-label': isMuted() ? '効果音をオンにする' : '効果音をオフにする',
+      onclick: () => { toggleMute(); notify(); },
+    }, isMuted() ? '音 切' : '音 入'),
   );
 }
 
@@ -65,7 +73,7 @@ export function morningScreen(s: GameState): HTMLElement {
   const nextInstallment = Object.entries(CONFIG.installments).map(([d, v]) => [Number(d), v] as const).find(([d]) => d >= s.day);
   return h('div', { class: 'screen morning' },
     hud(s),
-    h('div', { class: 'paper' },
+    h('div', { class: 'paper-scroll', 'data-scroll': 'paper' }, h('div', { class: 'paper' },
       h('div', { class: 'paper-head' },
         h('span', { class: 'paper-name' }, '潮見新報'),
         h('span', null, toWareki(dateOfDay(s.day))),
@@ -93,12 +101,12 @@ export function morningScreen(s: GameState): HTMLElement {
         ),
       ),
       m.newRules.length
-        ? h('div', { class: 'new-rules' }, h('h4', null, '📜 新しい規則（規則帳に追加）'), ...m.newRules.map((r) => h('p', null, r)))
+        ? h('div', { class: 'new-rules' }, h('h4', null, '新しい規則（規則帳に追加）'), ...m.newRules.map((r) => h('p', null, r)))
         : null,
       h('div', { class: 'paper-foot' },
-        h('button', { class: 'btn primary big', onclick: () => act({ type: 'BEGIN_COUNTER' }) }, '店を開ける'),
+        h('button', { class: 'btn primary big', 'data-key': 'next', onclick: () => act({ type: 'BEGIN_COUNTER' }) }, '店を開ける', h('kbd', null, 'Enter')),
       ),
-    ),
+    )),
   );
 }
 
@@ -153,6 +161,7 @@ export function endingScreen(s: GameState): HTMLElement {
       h('div', { class: 'ending-label' }, 'ENDING'),
       h('h1', null, e.title),
       h('p', { class: 'ending-text' }, e.text),
+      h('div', { class: 'panel ending-chart' }, debtMeter(s), historyChart(s)),
       h('table', { class: 'ending-stats' },
         h('tr', null, h('th', null, '到達日'), h('td', null, `${s.day} 日目`)),
         h('tr', null, h('th', null, '所持金'), h('td', null, yen(s.money))),

@@ -167,6 +167,8 @@ export interface ChatLine {
 export interface Session {
   customer: Customer;
   revealed: string[];
+  /** 照合済みの組（"a|b" を辞書順に並べたもの。古いセーブには無い） */
+  compared?: string[];
   findings: Finding[];
   pointed: string[];
   offers: number[];
@@ -271,6 +273,13 @@ export interface Scheduled {
   effects: Effects;
 }
 
+export interface DayLog {
+  deals: number;
+  reports: number;
+  refused: number;
+  walkouts: number;
+}
+
 export interface GameState {
   version: number;
   seed: number;
@@ -314,5 +323,7 @@ export interface GameState {
   /** 夜の終わりに所持金がマイナスだった連続日数 */
   overdraft: number;
   history: { day: number; money: number; debt: number }[];
+  /** 本日の応対結果（夜の日報用。古いセーブには無い） */
+  todayLog?: DayLog;
   ending?: EndingId;
 }

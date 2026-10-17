@@ -78,7 +78,7 @@ export const UPGRADES: UpgradeDef[] = [
   { id: 'tester', name: '通電テスター', desc: '家電の動作不良を確認できる。', price: 12_000, availableDay: 3, tool: 'tester' },
   { id: 'uv', name: 'UV ライト', desc: '身分証の偽造（透かし欠如）や品物の修理痕が分かる。', price: 15_000, availableDay: 6, tool: 'uv' },
   { id: 'acid', name: '試金石セット', desc: '貴金属の純度を判定する。', price: 20_000, availableDay: 9, tool: 'acid' },
-  { id: 'showcase', name: 'ショーケース増設', desc: '店頭の陳列枠 +3。', price: 30_000, availableDay: 2 },
+  { id: 'showcase', name: 'ショーケース増設', desc: '店頭の陳列枠 +4。', price: 30_000, availableDay: 2 },
   { id: 'sign', name: '看板の新調', desc: '来客数 +2 / 日。評判 +5。', price: 40_000, availableDay: 4 },
   { id: 'alarm', name: '防犯ベル', desc: '強盗・嫌がらせの被害を防ぐ。', price: 25_000, availableDay: 5 },
   { id: 'heater', name: '石油ストーブ', desc: '暖房費が半額になる。', price: 15_000, availableDay: 9 },

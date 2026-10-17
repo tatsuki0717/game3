@@ -7,7 +7,9 @@ import { UPGRADES } from '../core/data/schedule';
 import { committedExpenses, maxRate, shelfSlots } from '../core/game';
 import { interestOf, saleProbability, shopperValue, wholesalePrice } from '../core/systems/economy';
 import type { GameState, InventoryItem } from '../core/types';
+import { debtMeter, historyChart } from './chart';
 import { h } from './dom';
+import { categoryIcon } from './pixel';
 import { hud } from './screens';
 import { act } from './store';
 
@@ -24,7 +26,7 @@ function inventoryRow(s: GameState, inv: InventoryItem): HTMLElement {
   const p = inv.shelved ? saleProbability(s, inv) : saleProbability(s, { ...inv, price: Number(draft) || 0 });
   const chance = p >= 0.5 ? '高' : p >= 0.25 ? '中' : '低';
   return h('tr', { class: inv.shelved ? 'shelved' : '' },
-    h('td', null, `${def.emoji} ${def.name}`, h('small', null, inv.source === 'forfeit' ? '質流れ' : inv.source === 'story' ? '祖父の金庫' : '買取')),
+    h('td', { class: 'inv-name' }, categoryIcon(def.category), h('span', null, def.name), h('small', null, inv.source === 'forfeit' ? '質流れ' : inv.source === 'story' ? '祖父の金庫' : '買取')),
     h('td', null, CONDITION_LABEL[inv.item.condition].slice(0, 1)),
     h('td', null, yen(inv.cost)),
     h('td', null, yen(wholesalePrice(s, inv))),
@@ -48,6 +50,15 @@ function inventoryRow(s: GameState, inv: InventoryItem): HTMLElement {
   );
 }
 
+function nextDueText(s: GameState): string {
+  const next = Object.entries(CONFIG.installments).map(([d, v]) => [Number(d), v] as const).find(([d]) => d >= s.day);
+  if (next) {
+    const days = next[0] - s.day;
+    return `次の定期返済：${days === 0 ? '今夜' : `${days} 日後（${next[0]} 日目の夜）`}に ${yen(Math.min(next[1], s.debt))}`;
+  }
+  return `最終返済：${CONFIG.totalDays} 日目の夜に残額 ${yen(s.debt)}`;
+}
+
 export function nightScreen(s: GameState): HTMLElement {
   const income = s.ledger.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
   const outgo = s.ledger.filter((l) => l.amount < 0).reduce((a, l) => a + l.amount, 0);
@@ -60,9 +71,29 @@ export function nightScreen(s: GameState): HTMLElement {
   const familyState = f.sick ? '祖母が寝込んでいる' : f.hunger > 0 ? 'お腹を空かせている' : f.cold > 0 ? '寒がっている' : '元気';
   let debtDraft = '';
 
+  const log = s.todayLog;
+  const stat = (label: string, value: string) => h('div', { class: 'stat' }, h('span', null, label), h('b', null, value));
+
   return h('div', { class: 'screen night' },
     hud(s),
-    h('div', { class: 'night-grid' },
+    h('div', { class: 'night-body', 'data-scroll': 'night' }, h('div', { class: 'night-grid' },
+      h('section', { class: 'panel wide report' },
+        h('h3', null, `${s.day} 日目の日報`),
+        h('div', { class: 'stats' },
+          stat('応対', `${s.served} 人`),
+          log ? stat('成立', `${log.deals} 件`) : null,
+          log ? stat('通報', `${log.reports} 件`) : null,
+          log ? stat('断った・帰られた', `${log.refused + log.walkouts} 人`) : null,
+          stat('本日の収支', `${income + outgo >= 0 ? '+' : ''}${yen(income + outgo)}`),
+        ),
+        h('div', { class: 'report-grid' },
+          h('div', null,
+            debtMeter(s),
+            h('p', { class: 'muted small' }, nextDueText(s)),
+          ),
+          historyChart(s),
+        ),
+      ),
       h('section', { class: 'panel' },
         h('h3', null, '本日の帳簿'),
         h('ul', { class: 'ledger' },
@@ -84,7 +115,7 @@ export function nightScreen(s: GameState): HTMLElement {
         h('p', null, '家族：', h('b', null, familyState)),
         h('p', { class: after < 0 ? 'neg' : '' }, `支払い後の所持金：${yen(after)}`),
         installment && s.money < committed
-          ? h('p', { class: 'warn-text' }, '⚠ 定期返済に足りない！ このまま眠ると店は差し押さえられる。在庫を業者に売ってでも現金を作れ。')
+          ? h('p', { class: 'warn-text' }, '定期返済に足りない！ このまま眠ると店は差し押さえられる。在庫を業者に売ってでも現金を作れ。')
           : null,
       ),
       h('section', { class: 'panel' },
@@ -148,6 +179,6 @@ export function nightScreen(s: GameState): HTMLElement {
     ),
     h('div', { class: 'night-foot' },
       h('button', { class: 'btn primary big', onclick: () => { priceDrafts.clear(); act({ type: 'END_NIGHT' }); } }, s.day >= CONFIG.totalDays ? '最終日を終える' : '眠る（翌日へ）'),
-    ),
+    )),
   );
 }

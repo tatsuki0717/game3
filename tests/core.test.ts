@@ -12,6 +12,7 @@ import { makeDoc, makeItem, randomPerson } from '../src/core/systems/generate';
 import { respondToOffer } from '../src/core/systems/negotiation';
 import type { Customer, GameState, Session } from '../src/core/types';
 import { playthrough } from '../tools/simulate';
+import { ICON_ROWS } from '../src/ui/pixel';
 
 function run(s: GameState, ...actions: Action[]): GameState {
   for (const a of actions) s = dispatch(s, a).state;
@@ -175,6 +176,30 @@ describe('game flow', () => {
     expect(r.message).toMatch(/足りない/);
   });
 
+  it('does not charge time for repeating the same inspection or comparison', () => {
+    let s = run(newGame(14), { type: 'BEGIN_COUNTER' });
+    for (let i = 0; i < 20 && !s.session?.customer.item; i++) {
+      s = run(s, ...(s.session ? [{ type: 'REFUSE' } as Action, { type: 'DISMISS' } as Action] : []), { type: 'NEXT_CUSTOMER' });
+    }
+    s = run(s, { type: 'USE_TOOL', tool: 'loupe', target: 'item' });
+    const again = dispatch(s, { type: 'USE_TOOL', tool: 'loupe', target: 'item' });
+    expect(again.state).toBe(s);
+    expect(again.message).toMatch(/もう調べた/);
+    s = run(s, { type: 'COMPARE', a: 'item.hallmark', b: 'catalog.hallmark' });
+    const twice = dispatch(s, { type: 'COMPARE', a: 'catalog.hallmark', b: 'item.hallmark' });
+    expect(twice.state).toBe(s);
+    expect(twice.message).toMatch(/もう照合した/);
+  });
+
+  it('keeps a log of the day for the night report', () => {
+    let s = run(newGame(15), { type: 'BEGIN_COUNTER' }, { type: 'NEXT_CUSTOMER' });
+    if (s.session?.customer.intent === 'special') s = run(s, { type: 'CHOOSE', index: 0 }, { type: 'DISMISS' }, { type: 'NEXT_CUSTOMER' });
+    s = run(s, { type: 'REFUSE' });
+    expect(s.todayLog).toEqual({ deals: 0, reports: 0, refused: 1, walkouts: 0 });
+    s = run(s, { type: 'DISMISS' }, { type: 'CLOSE_SHOP' }, { type: 'END_NIGHT' });
+    expect(s.todayLog).toEqual({ deals: 0, reports: 0, refused: 0, walkouts: 0 });
+  });
+
   it('moves from counter to night to the next morning', () => {
     let s = run(newGame(12), { type: 'BEGIN_COUNTER' }, { type: 'CLOSE_SHOP' });
     expect(s.phase).toBe('night');
@@ -194,6 +219,15 @@ describe('game flow', () => {
     s = run(s, { type: 'END_NIGHT' });
     expect(s.phase).toBe('ending');
     expect(s.ending).toBe('foreclosed');
+  });
+});
+
+describe('pixel icons', () => {
+  it('are 12×12 maps using only palette characters', () => {
+    for (const rows of Object.values(ICON_ROWS)) {
+      expect(rows).toHaveLength(12);
+      for (const row of rows) expect(row).toMatch(/^[.kwgGsSrbnc]{12}$/);
+    }
   });
 });
 

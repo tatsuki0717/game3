@@ -1,5 +1,6 @@
 import { dispatch, newGame, SAVE_VERSION, type Action } from '../core/game';
 import type { GameState } from '../core/types';
+import { feedback } from './feedback';
 
 const SAVE_KEY = 'nanatsuya-save';
 
@@ -16,6 +17,10 @@ export interface UiState {
   catalogFilter: string;
   toast: string | null;
   paused: boolean;
+  /** 判子のアニメーションを再生済みの客 ID */
+  stampFor: string | null;
+  /** 登場アニメーションを再生済みの客 ID */
+  faceFor: string | null;
 }
 
 export const ui: UiState = {
@@ -28,6 +33,8 @@ export const ui: UiState = {
   catalogFilter: '',
   toast: null,
   paused: false,
+  stampFor: null,
+  faceFor: null,
 };
 
 let state: GameState | null = null;
@@ -68,6 +75,7 @@ export function act(action: Action, opts: { silent?: boolean } = {}): boolean {
   const r = dispatch(state, action);
   state = r.state;
   const failed = r.state === prev && !!r.message;
+  if (!opts.silent) feedback(action, prev, r.state, failed);
   if (failed && r.message) toast(r.message);
   else if (r.message && (action.type === 'WHOLESALE' || action.type === 'BUY_UPGRADE' || action.type === 'PAY_DEBT')) toast(r.message);
   if (!opts.silent || failed) {
