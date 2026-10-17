@@ -21,7 +21,17 @@ export interface UiState {
   stampFor: string | null;
   /** 登場アニメーションを再生済みの客 ID */
   faceFor: string | null;
+  /** 夜の画面で開いているタブ */
+  nightTab: NightTab;
+  /** 夜の画面の各タブのページ番号 */
+  nightPage: Partial<Record<NightTab, number>>;
+  /** 在庫タブで選んでいる品物 */
+  stockSel: string | null;
+  /** 日報の集計演出を再生済みの日（seed:day） */
+  reportFor: string | null;
 }
+
+export type NightTab = 'report' | 'books' | 'stock' | 'trade' | 'loans' | 'debt' | 'shop';
 
 export const ui: UiState = {
   screen: 'title',
@@ -35,6 +45,10 @@ export const ui: UiState = {
   paused: false,
   stampFor: null,
   faceFor: null,
+  nightTab: 'report',
+  nightPage: {},
+  stockSel: null,
+  reportFor: null,
 };
 
 let state: GameState | null = null;
@@ -98,6 +112,9 @@ export function resetUi(): void {
   ui.compareFirst = null;
   ui.pendingTool = null;
   ui.offer = '';
+  ui.nightTab = 'report';
+  ui.nightPage = {};
+  ui.stockSel = null;
 }
 
 export function save(): void {
