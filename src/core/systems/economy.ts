@@ -35,10 +35,17 @@ function loanVisitor(state: GameState, rng: Rng, loan: Loan, intent: 'redeem' | 
   const person = impostor ? randomPerson(rng, today) : base.person;
   const docs = impostor ? [makeDoc(rng, person, 'license', today)] : base.docs.map((d) => ({ ...makeDoc(rng, person, d.kind, today), idNo: d.idNo, company: d.company }));
   const interest = interestOf(loan);
+  // 利払いの客が、払えないので利息を下げてほしいと直接頼みに来ることがある（ストーリー客は除く）
+  const reducedInterest =
+    intent === 'pay_interest' && !base.storyId && interest > 0 && rng.chance(CONFIG.interestReductionChance)
+      ? Math.round((interest * CONFIG.interestReductionShare) / 100) * 100
+      : undefined;
   const greeting =
-    base.storyId === 'sanae' && intent === 'redeem' && !impostor
-      ? '店主さん！ 新しい仕事が見つかったんです。待ってくださって、本当にありがとうございました…！'
-      : rng.pick(greetingsFor(intent, impostor ? 'liar' : base.personality));
+    reducedInterest !== undefined
+      ? '利息を少しまけてもらえませんか。直接お願いに来ました。'
+      : base.storyId === 'sanae' && intent === 'redeem' && !impostor
+        ? '店主さん！ 新しい仕事が見つかったんです。待ってくださって、本当にありがとうございました…！'
+        : rng.pick(greetingsFor(intent, impostor ? 'liar' : base.personality));
   return {
     id: newId(state, 'c'),
     person,
@@ -52,8 +59,9 @@ function loanVisitor(state: GameState, rng: Rng, loan: Loan, intent: 'redeem' | 
       principal: loan.principal,
       interest,
       dueDay: loan.dueDay,
+      reducedInterest,
     },
-    cash: intent === 'redeem' ? loan.principal + interest : interest,
+    cash: intent === 'redeem' ? loan.principal + interest : reducedInterest ?? interest,
     ask: 0,
     min: 0,
     patience: 3,

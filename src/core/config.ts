@@ -20,6 +20,10 @@ export const CONFIG = {
   maxRateAfterCap: 0.09,
   rateCapDay: 12,
 
+  /** 利払いの客が、本人として窓口に直接来て利息の減額を頼む確率と、頼む利息の割合 */
+  interestReductionChance: 0.3,
+  interestReductionShare: 0.5,
+
   violationLimit: 10,
   startShelfSlots: 6,
 

@@ -106,6 +106,8 @@ export interface PawnTicketView {
   principal: number;
   interest: number;
   dueDay: number;
+  /** 利払いで客が減額を頼んでくる利息（本人が窓口に直接来て頼む。店員は代行しない） */
+  reducedInterest?: number;
 }
 
 export interface Customer {

@@ -27,6 +27,7 @@ export type Action =
   | { type: 'POINT_OUT'; key: string }
   | { type: 'OFFER'; amount: number }
   | { type: 'ACCEPT_REQUEST' }
+  | { type: 'ACCEPT_REDUCTION' }
   | { type: 'REFUSE' }
   | { type: 'REPORT' }
   | { type: 'CHOOSE'; index: number }
@@ -148,7 +149,9 @@ function apply(s: GameState, rng: Rng, a: Action): Inner {
     case 'OFFER':
       return doOffer(s, rng, a.amount);
     case 'ACCEPT_REQUEST':
-      return acceptRequest(s);
+      return acceptRequest(s, false);
+    case 'ACCEPT_REDUCTION':
+      return acceptRequest(s, true);
     case 'REFUSE':
       return refuse(s, rng);
     case 'REPORT':
@@ -651,17 +654,20 @@ function closeDeal(s: GameState, ses: Session, amount: number): void {
   s.todayVisitors.push(personKey(c));
 }
 
-function acceptRequest(s: GameState): Inner {
+/** 減額を受けるなら reduced、元の利息で払ってもらうなら false */
+function acceptRequest(s: GameState, reduced: boolean): Inner {
   const ses = open(s);
   if (!ses) return fail('応対中の客がいない。');
   const c = ses.customer;
   if (!c.ticket) return fail('この客の用件は請け出し・利払いではない。');
   const loan = findLoan(s, c.ticket.ticketNo);
   if (!loan || loan.status !== 'active') return fail('その質札は無効だ。');
+  if (reduced && c.ticket.reducedInterest === undefined) return fail('減額の申し出はない。');
+  const interest = reduced ? c.ticket.reducedInterest! : interestOf(loan);
   ses.closed = true;
   ses.outcome = 'deal';
   logOutcome(s, 'deals');
-  ses.chat.push({ who: 'system', text: settleTicket(s, loan, c) });
+  ses.chat.push({ who: 'system', text: settleTicket(s, loan, c, interest) });
   ses.chat.push({ who: 'customer', text: 'ありがとうございました。' });
   for (const rule of violations(s, c.intent, 0, c)) {
     s.pendingViolations.push({ ruleId: rule.id, day: s.day, customerName: c.person.name, detectChance: rule.detectChance });
@@ -669,10 +675,9 @@ function acceptRequest(s: GameState): Inner {
   return {};
 }
 
-/** 請け出し・利払いの精算。結果の説明文を返す */
-function settleTicket(s: GameState, loan: Loan, c: Customer): string {
+/** 請け出し・利払いの精算。利息は呼び出し側が決める（減額があるため）。結果の説明文を返す */
+function settleTicket(s: GameState, loan: Loan, c: Customer, interest: number): string {
   const name = itemDef(loan.item.defId).name;
-  const interest = interestOf(loan);
   if (c.intent === 'redeem') {
     loan.status = 'redeemed';
     loan.pendingVisit = undefined;
@@ -703,7 +708,8 @@ function clerkHandles(s: GameState, rng: Rng, visitors: Customer[], notes: strin
   const rest: Customer[] = [];
   for (const c of visitors) {
     const loan = c.ticket && findLoan(s, c.ticket.ticketNo);
-    if (!loan || c.storyId) {
+    // 減額の申し出は本人が窓口に直接来て頼むので、店員は代行しない
+    if (!loan || c.storyId || c.ticket?.reducedInterest !== undefined) {
       rest.push(c);
       continue;
     }
@@ -712,7 +718,7 @@ function clerkHandles(s: GameState, rng: Rng, visitors: Customer[], notes: strin
       notes.push(`店員：質札 No.${loan.ticketNo} を持ってきた客が名義人と別人だったので、お引き取り願いました。`);
       continue;
     }
-    notes.push(`店員：質札 No.${loan.ticketNo}（${c.person.name}様）— ${settleTicket(s, loan, c)}`);
+    notes.push(`店員：質札 No.${loan.ticketNo}（${c.person.name}様）— ${settleTicket(s, loan, c, interestOf(loan))}`);
   }
   return rest;
 }
@@ -722,6 +728,9 @@ function refuse(s: GameState, rng: Rng): Inner {
   if (!ses) return fail('応対中の客がいない。');
   const c = ses.customer;
   if (c.intent === 'special') return fail('返事を選んでほしい。');
+  // 名義人本人の請け出しは断れない。減額の頼みは受けるか元の利息で払ってもらうかを選ぶ
+  if (c.intent === 'redeem' && !c.impostor) return fail('名義人本人の請け出しは断れない。');
+  if (c.ticket?.reducedInterest !== undefined) return fail('減額を受けるか、元の利息で払ってもらうか選んでほしい。');
   ses.closed = true;
   ses.outcome = 'refused';
   logOutcome(s, 'refused');

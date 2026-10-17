@@ -290,6 +290,66 @@ describe('management', () => {
   });
 });
 
+describe('ticket visits', () => {
+  // 満期の朝に、この質札の客だけが窓口に並んでいる状態を作る
+  const dueVisit = (seed: number, pendingVisit: 'redeem' | 'extend') => {
+    let s = run(newGame(seed), { type: 'BEGIN_COUNTER' }, { type: 'CLOSE_SHOP' });
+    const c = newGame(seed).queue.find((q) => !q.storyId && !q.ticket)!;
+    s.loans.push({
+      ticketNo: 99, customer: c, item: makeItem(s, new Rng(1), 'ring_k18'), principal: 20_000, rate: 0.1,
+      issuedDay: 1, dueDay: 2, status: 'active', extensions: 0, pendingVisit,
+    });
+    s = run(s, { type: 'END_NIGHT' }, { type: 'BEGIN_COUNTER' });
+    const visitor = s.queue.find((q) => q.ticket?.ticketNo === 99)!;
+    return { ...s, queue: [{ ...visitor, impostor: false }] };
+  };
+
+  it('cannot refuse a genuine holder at redemption', () => {
+    let s = run(dueVisit(26, 'redeem'), { type: 'NEXT_CUSTOMER' });
+    const r = dispatch(s, { type: 'REFUSE' });
+    expect(r.state).toBe(s);
+    expect(r.message).toMatch(/断れない/);
+    s = run(s, { type: 'ACCEPT_REQUEST' });
+    expect(s.loans.find((l) => l.ticketNo === 99)?.status).toBe('redeemed');
+  });
+
+  it('still lets the counter refuse a stranger holding someone else\'s ticket', () => {
+    const base = dueVisit(26, 'redeem');
+    let s = run({ ...base, queue: [{ ...base.queue[0], impostor: true }] }, { type: 'NEXT_CUSTOMER' }, { type: 'REFUSE' });
+    expect(s.loans.find((l) => l.ticketNo === 99)?.status).toBe('active');
+    expect(s.loans.find((l) => l.ticketNo === 99)?.dueDay).toBe(s.day + 1);
+  });
+
+  it('takes a reduced interest only from the holder in person', () => {
+    const base = dueVisit(27, 'extend');
+    const v = base.queue[0];
+    let s: GameState = { ...base, queue: [{ ...v, ticket: { ...v.ticket!, reducedInterest: 500 } }] };
+    const before = s.money;
+    s = run(s, { type: 'NEXT_CUSTOMER' });
+    expect(dispatch(s, { type: 'REFUSE' }).message).toMatch(/選んで/);
+    s = run(s, { type: 'ACCEPT_REDUCTION' });
+    const loan = s.loans.find((l) => l.ticketNo === 99)!;
+    expect(s.money).toBe(before + 500);
+    expect(loan.status).toBe('active');
+    expect(loan.extensions).toBe(1);
+    expect(loan.dueDay).toBe(s.day + CONFIG.loanTermDays);
+  });
+
+  it('pays the full interest when the holder keeps the original amount', () => {
+    const base = dueVisit(27, 'extend');
+    const v = base.queue[0];
+    let s = run({ ...base, queue: [{ ...v, ticket: { ...v.ticket!, reducedInterest: 500 } }] }, { type: 'NEXT_CUSTOMER' });
+    const before = s.money;
+    s = run(s, { type: 'ACCEPT_REQUEST' });
+    expect(s.money).toBe(before + interestOf(s.loans[0]));
+  });
+
+  it('has no reduction to accept for an ordinary redemption', () => {
+    const s = run(dueVisit(26, 'redeem'), { type: 'NEXT_CUSTOMER' });
+    expect(dispatch(s, { type: 'ACCEPT_REDUCTION' }).message).toMatch(/減額の申し出はない/);
+  });
+});
+
 describe('pixel icons', () => {
   it('are 12×12 maps using only palette characters', () => {
     for (const rows of Object.values(ICON_ROWS)) {

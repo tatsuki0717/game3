@@ -306,13 +306,25 @@ function actionPanel(s: GameState): HTMLElement {
   }
   const reportable = ses.findings.some((f) => f.reportable);
   if (c.ticket) {
+    const reduced = c.ticket.reducedInterest;
+    const text = c.intent === 'redeem'
+      ? `請け出し：元利 ${yen(c.ticket.principal + c.ticket.interest)} を受け取って品物を返す`
+      : reduced === undefined
+        ? `利払い：利息 ${yen(c.ticket.interest)} を受け取り期限を延長する`
+        : `利払い：利息 ${yen(c.ticket.interest)} を ${yen(reduced)} にまけてほしいと頼まれた`;
     return h('div', { class: 'panel actions' },
-      h('p', null, c.intent === 'redeem' ? `請け出し：元利 ${yen(c.ticket.principal + c.ticket.interest)} を受け取って品物を返す` : `利払い：利息 ${yen(c.ticket.interest)} を受け取り期限を延長する`),
+      h('p', null, text),
       findingsList(ses),
-      h('div', { class: 'btn-row' },
-        h('button', { class: 'btn primary', onclick: () => act({ type: 'ACCEPT_REQUEST' }) }, '応じる'),
-        h('button', { class: 'btn danger', onclick: () => act({ type: 'REFUSE' }) }, '断る'),
-      ),
+      reduced !== undefined
+        ? h('div', { class: 'btn-row' },
+          h('button', { class: 'btn primary', onclick: () => act({ type: 'ACCEPT_REDUCTION' }) }, `${yen(reduced)} に減額する`),
+          h('button', { class: 'btn', onclick: () => act({ type: 'ACCEPT_REQUEST' }) }, '元の利息で払ってもらう'),
+        )
+        : h('div', { class: 'btn-row' },
+          h('button', { class: 'btn primary', onclick: () => act({ type: 'ACCEPT_REQUEST' }) }, '応じる'),
+          // 名義人本人の請け出しは断れない。名義が違う人は断る
+          c.intent === 'redeem' && !c.impostor ? null : h('button', { class: 'btn danger', onclick: () => act({ type: 'REFUSE' }) }, '断る'),
+        ),
     );
   }
   const offer = () => {
