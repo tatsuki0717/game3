@@ -1,15 +1,15 @@
 // 自動プレイによるバランス検証。
 //   npm run simulate -- [runs] [strategy]
-// strategy: oracle（真実を知っている上限ボット） / careful（道具で調べる） / naive（何も見ずに希望額で即決）
+// strategy: careful（道具で調べる） / manager（careful＋仕入れ・広告・店員・融資を使う） / naive（何も見ずに希望額で即決）
 
 import { CONFIG } from '../src/core/config';
-import { dispatch, newGame, shelfSlots, type Action } from '../src/core/game';
+import { committedExpenses, dispatch, newGame, shelfSlots, type Action } from '../src/core/game';
 import { hadLegalReason } from '../src/core/systems/compliance';
-import { shopperValue } from '../src/core/systems/economy';
+import { apparentValue, bankLimit, shopperValue } from '../src/core/systems/economy';
 import { trueValue } from '../src/core/systems/generate';
 import type { GameState, ToolId } from '../src/core/types';
 
-type Strategy = 'oracle' | 'careful' | 'naive';
+type Strategy = 'careful' | 'manager' | 'naive';
 
 function act(s: GameState, a: Action): GameState {
   return dispatch(s, a).state;
@@ -32,7 +32,7 @@ function handleCustomer(s: GameState, strategy: Strategy): GameState {
     const bad = strategy === 'naive' ? false : c.impostor;
     return act(s, bad ? { type: 'REFUSE' } : { type: 'ACCEPT_REQUEST' });
   }
-  if (strategy === 'careful') {
+  if (strategy !== 'naive') {
     for (const tool of s.tools as ToolId[]) s = act(s, { type: 'USE_TOOL', tool, target: 'item' });
     if (s.tools.includes('uv')) s = act(s, { type: 'USE_TOOL', tool: 'uv', target: 'doc.0' });
     for (const [a, b] of [['item.hallmark', 'catalog.hallmark'], ['item.weight', 'catalog.weight'], ['item.magnetic', 'catalog.material']]) {
@@ -65,7 +65,7 @@ function handleCustomer(s: GameState, strategy: Strategy): GameState {
   return s;
 }
 
-function night(s: GameState): GameState {
+function night(s: GameState, strategy: Strategy): GameState {
   // 古い在庫は業者へ、残りは陳列
   for (const inv of [...s.inventory]) {
     if (!inv.item.authentic || s.day - inv.acquiredDay >= 4 || s.day >= CONFIG.totalDays) s = act(s, { type: 'WHOLESALE', itemId: inv.item.id });
@@ -77,6 +77,7 @@ function night(s: GameState): GameState {
   for (const id of ['magnet', 'tester', 'uv', 'acid', 'showcase', 'alarm', 'sign']) {
     if (s.money > 200_000 + reserve(s)) s = act(s, { type: 'BUY_UPGRADE', id });
   }
+  if (strategy === 'manager') s = manage(s);
   if (s.day >= 29) s = act(s, { type: 'PAY_DEBT', amount: s.money - 30_000 });
   if (process.env.TRACE) {
     const sum: Record<string, number> = {};
@@ -90,6 +91,24 @@ function night(s: GameState): GameState {
     console.log(`day ${s.day} money ${s.money} loans ${loans} inv ${inv}(${s.inventory.length}, shelved ${s.inventory.filter((i) => i.shelved).length}) worth ${s.money + loans + inv - s.debt} served ${s.served} ${deals}`, sum);
   }
   return act(s, { type: 'END_NIGHT' });
+}
+
+function manage(s: GameState): GameState {
+  // 割安な仕入れ品を空いた陳列枠に並べる
+  for (const lot of [...(s.dealerLots ?? [])]) {
+    const room = shelfSlots(s) - s.inventory.filter((i) => i.shelved).length;
+    if (room <= 0 || lot.price > apparentValue(s, lot.item) * 0.7 || s.money - lot.price < reserve(s) + 80_000) continue;
+    s = act(s, { type: 'BUY_LOT', itemId: lot.item.id });
+    const inv = s.inventory.find((i) => i.item.id === lot.item.id);
+    if (inv) s = act(s, { type: 'SHELVE', itemId: inv.item.id, price: Math.round(shopperValue(s, inv) * 0.85) });
+  }
+  if (!s.clerk && s.day >= 5 && s.money > reserve(s) + 100_000) s = act(s, { type: 'HIRE_CLERK' });
+  if (s.day < 29 && s.money > reserve(s) + 40_000) s = act(s, { type: 'SET_AD', ad: { id: 'flyer' } });
+  // 定期返済に足りなければつなぎ融資、余裕があれば返す
+  const short = committedExpenses(s) - s.money;
+  if (short > 0 && bankLimit(s) > (s.bankLoan ?? 0)) s = act(s, { type: 'BORROW', amount: short + 1000 });
+  if ((s.bankLoan ?? 0) > 0 && s.money - committedExpenses(s) > reserve(s)) s = act(s, { type: 'REPAY_BANK', amount: s.money - committedExpenses(s) - reserve(s) });
+  return s;
 }
 
 export function playthrough(seed: number, strategy: Strategy): GameState {
@@ -110,7 +129,7 @@ export function playthrough(seed: number, strategy: Strategy): GameState {
         s = act(s, { type: 'NEXT_CUSTOMER' });
         s = handleCustomer(s, strategy);
       } else s = act(s, { type: 'CLOSE_SHOP' });
-    } else if (s.phase === 'night') s = night(s);
+    } else if (s.phase === 'night') s = night(s, strategy);
   }
   return s;
 }
@@ -118,7 +137,7 @@ export function playthrough(seed: number, strategy: Strategy): GameState {
 if (!process.env.VITEST) {
   const args = process.argv.slice(2).filter((a) => a !== '--' && !a.endsWith('.ts'));
   const runs = Number(args[0] ?? 200);
-  const strategies: Strategy[] = args[1] ? [args[1] as Strategy] : ['careful', 'naive'];
+  const strategies: Strategy[] = args[1] ? [args[1] as Strategy] : ['careful', 'manager', 'naive'];
   for (const strategy of strategies) {
     const endings: Record<string, number> = {};
     let finalDay = 0;

@@ -359,6 +359,11 @@ th { color: var(--muted); font-weight: 400; }
 
 /* 日報とグラフ */
 .stats { display: flex; flex-wrap: wrap; gap: 6px 28px; margin-bottom: 10px; }
+.stats.balance { border-top: 1px dashed #0004; padding-top: 6px; }
+.stats.balance .stat b { font-size: 18px; }
+.panel h3.sub { margin-top: 12px; }
+.ads label { display: flex; gap: 6px; align-items: flex-start; cursor: pointer; }
+.ad-select { font: inherit; font-size: 14px; background: var(--paper-light); color: var(--ink); border: 1px solid var(--ink); }
 .stat span { display: block; font-size: 12px; color: var(--muted); }
 .stat b { font-weight: 400; font-size: 22px; }
 .report-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 20px; align-items: start; }
