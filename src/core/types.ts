@@ -132,6 +132,8 @@ export interface Customer {
   impostor?: boolean;
   /** 本日 2 回目の来店（変装） */
   repeat?: boolean;
+  /** 期限切れを指摘されると、財布から出してくる別の身分証 */
+  spareDoc?: IdDoc;
 }
 
 export type FindingKind =

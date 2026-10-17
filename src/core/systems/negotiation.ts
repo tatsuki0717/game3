@@ -35,6 +35,13 @@ export interface PointResult {
 /** 欠陥・偽物の指摘。客の希望額と最低額が下がる。 */
 export function pointOut(session: Session, finding: Finding, rng: Rng): PointResult {
   const c = session.customer;
+  if (finding.kind === 'doc_expired') {
+    if (!c.spareDoc) return { line: '…期限切れでしたか。出直します。', fled: true };
+    // 別の身分証を出してくる。それが本物かどうかは、また照合して確かめるしかない
+    c.docs.push(c.spareDoc);
+    c.spareDoc = undefined;
+    return { line: 'えっ、期限切れ！？ …じゃあ、こっちの免許証で。', fled: false };
+  }
   const fake = finding.kind.startsWith('fake_');
   if (fake) {
     const alreadyFake = session.pointed.some((k) => k.startsWith('fake_'));

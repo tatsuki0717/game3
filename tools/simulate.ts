@@ -42,8 +42,22 @@ function handleCustomer(s: GameState, strategy: Strategy): GameState {
   }
   const cur = () => s.session!;
   if (cur().closed) return s;
+  if (strategy !== 'naive') {
+    // 期限切れを指摘すると、別の身分証を出してくることがある。出てきたら同じように調べる
+    const expired = cur().findings.find((f) => f.kind === 'doc_expired');
+    if (expired) {
+      s = act(s, { type: 'POINT_OUT', key: expired.key });
+      for (let i = 0; i < cur().customer.docs.length && !cur().closed; i++) {
+        if (s.tools.includes('uv')) s = act(s, { type: 'USE_TOOL', tool: 'uv', target: `doc.${i}` });
+        if (cur().customer.docs[i].photo) s = act(s, { type: 'COMPARE', a: `doc.${i}.photo`, b: 'face' });
+        s = act(s, { type: 'COMPARE', a: `doc.${i}.expiry`, b: 'today' });
+        s = act(s, { type: 'COMPARE', a: `doc.${i}.birth`, b: 'today' });
+      }
+    }
+  }
+  if (cur().closed) return s;
   const tv = trueValue(s, c.item!);
-  const bad = !c.item!.authentic || c.item!.stolen || hadLegalReason(s, c);
+  const bad = !c.item!.authentic || c.item!.stolen || hadLegalReason(s, cur().customer);
   if (strategy !== 'naive' && bad) {
     if (cur().findings.some((f) => f.reportable)) return act(s, { type: 'REPORT' });
     return act(s, { type: 'REFUSE' });

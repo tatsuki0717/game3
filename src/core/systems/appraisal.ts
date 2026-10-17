@@ -170,7 +170,7 @@ function compareOrdered(state: GameState, session: Session, a: string, b: string
       return {
         match: false,
         message: '有効期限が切れている！',
-        finding: { key: `doc_expired:${da.i}`, kind: 'doc_expired', label: '身分証の期限切れ', pointable: false, reportable: false },
+        finding: { key: `doc_expired:${da.i}`, kind: 'doc_expired', label: '身分証の期限切れ', pointable: true, reportable: false },
       };
     }
     if (da.field === 'birth' && b === 'today') {

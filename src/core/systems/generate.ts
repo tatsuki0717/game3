@@ -75,6 +75,15 @@ export function makeDoc(rng: Rng, person: Person, kind: IdDoc['kind'], today: st
   return doc;
 }
 
+/** 期限切れの身分証を指摘されたときに出す、別の写真付き身分証。写真が別人か偽造のことがある */
+export function makeSpareDoc(rng: Rng, person: Person, today: string): IdDoc {
+  const doc = makeDoc(rng, person, 'license', today);
+  const r = rng.next();
+  if (r < 0.3) doc.photo = alterFace(rng, person.face);
+  else if (r < 0.45) doc.forged = true;
+  return doc;
+}
+
 export function makeItem(state: GameState, rng: Rng, defId: string, opts: { fake?: boolean; stolen?: boolean } = {}): ItemInstance {
   const def = itemDef(defId);
   const authentic = !opts.fake || def.fakeHallmarks.length === 0;
@@ -210,7 +219,8 @@ export function randomCustomer(state: GameState, rng: Rng, d: Difficulty, focus?
   if (noPhoto) for (const doc of docs) if (doc.kind === 'license') { doc.kind = 'insurance'; delete doc.photo; }
 
   const main = docs[0];
-  if (rng.chance(d.expired)) main.expiry = addDays(today, -rng.int(1, 200));
+  const expired = rng.chance(d.expired);
+  if (expired) main.expiry = addDays(today, -rng.int(1, 200));
   if (rng.chance(d.forged)) {
     main.forged = true;
     if (minor) {
@@ -227,6 +237,7 @@ export function randomCustomer(state: GameState, rng: Rng, d: Difficulty, focus?
     else other.birth = `${Number(other.birth.slice(0, 4)) + rng.int(1, 3)}${other.birth.slice(4)}`;
   }
 
+  const spareDoc = expired && rng.chance(0.7) ? makeSpareDoc(rng, person, today) : undefined;
   const c: Customer = {
     id: newId(state, 'c'),
     person,
@@ -234,6 +245,7 @@ export function randomCustomer(state: GameState, rng: Rng, d: Difficulty, focus?
     intent,
     personality,
     item: makeItem(state, rng, defId, { fake, stolen }),
+    spareDoc,
     cash: 0,
     ask: 0,
     min: 0,
