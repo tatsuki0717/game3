@@ -24,3 +24,4 @@ npm run simulate -- 100        # ボットで 100 回プレイしてバランス
 1. [企画書](docs/01_concept.md) — コンセプト、世界観、コア体験、勝敗条件
 2. [ゲームデザイン詳細](docs/02_game_design.md) — 画面、査定・交渉・規則・質札・経営の各システム、難易度、初期バランス
 3. [技術設計](docs/03_technical_design.md) — 技術スタック、アーキテクチャ、データモデル、システム分割、テスト、マイルストーン
+4. [ゲーム系ライブラリ導入の検討](docs/04_library_evaluation.md) — Phaser / PixiJS / Howler などの比較と推奨案
