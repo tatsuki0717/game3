@@ -1,71 +1,34 @@
+import * as Phaser from 'phaser';
 import './style.css';
-import { CONFIG } from './core/config';
-import { formatClock } from './core/dates';
-import { counterScreen } from './ui/counter';
-import { h } from './ui/dom';
-import { nightScreen } from './ui/night';
-import { endingScreen, morningScreen, titleScreen } from './ui/screens';
-import { act, getState, hasState, notify, subscribe, ui } from './ui/store';
+import { CounterScene } from './scenes/CounterScene';
+import { EndingScene } from './scenes/EndingScene';
+import { MorningScene } from './scenes/MorningScene';
+import { NightScene } from './scenes/NightScene';
+import { TitleScene } from './scenes/TitleScene';
+import * as store from './ui/store';
+import { H, W } from './ui/theme';
 
-const root = document.getElementById('app')!;
-
-function render(): void {
-  const scrollY = window.scrollY;
-  const refBody = document.querySelector('.tab-body');
-  const refScroll = refBody?.scrollTop ?? 0;
-  let screen: HTMLElement;
-  if (ui.screen === 'title' || !hasState()) screen = titleScreen();
-  else {
-    const s = getState();
-    switch (s.phase) {
-      case 'morning':
-        screen = morningScreen(s);
-        break;
-      case 'counter':
-        screen = counterScreen(s);
-        break;
-      case 'night':
-        screen = nightScreen(s);
-        break;
-      default:
-        screen = endingScreen(s);
-    }
-  }
-  root.replaceChildren(screen);
-  if (ui.toast) root.append(h('div', { class: 'toast' }, ui.toast));
-  const chat = root.querySelector('.chat');
-  if (chat) chat.scrollTop = chat.scrollHeight;
-  const nb = root.querySelector('.tab-body');
-  if (nb) nb.scrollTop = refScroll;
-  window.scrollTo(0, scrollY);
+/** キャンバスに描く前に日本語フォントを読み込んでおく（遅い回線では 3 秒で諦める） */
+async function loadFonts(): Promise<void> {
+  const faces = ['400 16px "Noto Sans JP"', '700 16px "Noto Sans JP"', '700 16px "Noto Serif JP"', '900 16px "Noto Serif JP"'];
+  const timeout = new Promise((r) => setTimeout(r, 3000));
+  await Promise.race([Promise.all(faces.map((f) => document.fonts.load(f, '質屋あア¥0'))), timeout]).catch(() => undefined);
 }
 
-subscribe(render);
-render();
+function boot(): void {
+  document.getElementById('loading')?.remove();
+  const game = new Phaser.Game({
+    type: Phaser.AUTO,
+    parent: 'app',
+    width: W,
+    height: H,
+    backgroundColor: '#1f1a15',
+    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+    input: { mouse: { preventDefaultWheel: false } },
+    scene: [TitleScene, MorningScene, CounterScene, NightScene, EndingScene],
+  });
+  // 開発時だけ、ブラウザのコンソールや自動テストから触れるようにする
+  if (import.meta.env.DEV) Object.assign(window, { game, store });
+}
 
-// 営業時間中は実時間で時計が進む（0.8 秒でゲーム内 1 分）
-const TICK_MS = 800;
-setInterval(() => {
-  if (!hasState() || ui.screen !== 'game' || document.hidden) return;
-  const s = getState();
-  if (s.phase !== 'counter' || s.clock >= CONFIG.closeMinute) return;
-  const before = s.clock;
-  act({ type: 'TICK', minutes: 1 }, { silent: true });
-  const after = getState().clock;
-  const el = document.getElementById('hud-clock');
-  if (el) {
-    el.textContent = formatClock(Math.min(after, CONFIG.closeMinute));
-    el.classList.toggle('late', after >= CONFIG.closeMinute - 60);
-  }
-  if (before < CONFIG.closeMinute && after >= CONFIG.closeMinute) notify();
-}, TICK_MS);
-
-// キーボード操作：Esc で照合・道具の選択を解除
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (ui.compareMode || ui.pendingTool)) {
-    ui.compareMode = false;
-    ui.compareFirst = null;
-    ui.pendingTool = null;
-    notify();
-  }
-});
+void loadFonts().then(boot);

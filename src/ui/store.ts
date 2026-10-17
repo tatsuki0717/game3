@@ -13,9 +13,18 @@ export interface UiState {
   pendingTool: string | null;
   refTab: 'rules' | 'catalog' | 'stolen' | 'today';
   offer: string;
+  /** カタログの分類絞り込み（'' は全件） */
   catalogFilter: string;
   toast: string | null;
   paused: boolean;
+  showHowto: boolean;
+  /** 机の上でドラッグした書類・品物の位置（客ごと） */
+  deskPos: Record<string, { x: number; y: number }>;
+  /** 机の上の重なり順（後ろほど手前） */
+  deskOrder: string[];
+  /** 夜の画面：店頭価格の下書き・繰り上げ返済額 */
+  priceDrafts: Record<string, number>;
+  debtDraft: string;
 }
 
 export const ui: UiState = {
@@ -28,10 +37,19 @@ export const ui: UiState = {
   catalogFilter: '',
   toast: null,
   paused: false,
+  showHowto: false,
+  deskPos: {},
+  deskOrder: [],
+  priceDrafts: {},
+  debtDraft: '',
 };
 
 let state: GameState | null = null;
 const listeners: Listener[] = [];
+const toastListeners: ((msg: string) => void)[] = [];
+
+/** 状態が変わるたびに増える番号。各シーンはこれを見て描き直す */
+export let renderVersion = 0;
 
 export function getState(): GameState {
   if (!state) throw new Error('game not started');
@@ -47,18 +65,27 @@ export function subscribe(fn: Listener): void {
 }
 
 export function notify(): void {
+  renderVersion++;
   for (const fn of listeners) fn();
 }
 
-let toastTimer: number | undefined;
+export function onToast(fn: (msg: string) => void): () => void {
+  toastListeners.push(fn);
+  return () => {
+    const i = toastListeners.indexOf(fn);
+    if (i >= 0) toastListeners.splice(i, 1);
+  };
+}
+
 export function toast(msg: string): void {
   ui.toast = msg;
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => {
-    ui.toast = null;
-    const el = document.querySelector('.toast');
-    el?.remove();
-  }, 2600);
+  for (const fn of toastListeners) fn(msg);
+}
+
+/** 今表示すべきシーンのキー */
+export function currentSceneKey(): 'title' | 'morning' | 'counter' | 'night' | 'ending' {
+  if (ui.screen === 'title' || !state) return 'title';
+  return state.phase === 'title' ? 'title' : state.phase;
 }
 
 /** 状態を更新する。silent のときは再描画しない（時計の進行など） */
@@ -90,6 +117,10 @@ export function resetUi(): void {
   ui.compareFirst = null;
   ui.pendingTool = null;
   ui.offer = '';
+  ui.deskPos = {};
+  ui.deskOrder = [];
+  ui.priceDrafts = {};
+  ui.debtDraft = '';
 }
 
 export function save(): void {
