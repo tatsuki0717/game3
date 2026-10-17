@@ -229,7 +229,8 @@ export function randomCustomer(state: GameState, rng: Rng, d: Difficulty, focus?
       main.birth = `${adultYear}${main.birth.slice(4)}`;
     }
   }
-  if (main.photo && rng.chance(d.photoMismatch)) main.photo = alterFace(rng, person.face);
+  const photoAltered = !!main.photo && rng.chance(d.photoMismatch);
+  if (photoAltered) main.photo = alterFace(rng, person.face);
   if (docs.length > 1 && rng.chance(0.06 + d.forged * 0.5)) {
     // 2 枚目の書類の名前・生年月日が食い違う（借り物）
     const other = docs[1];
@@ -237,7 +238,7 @@ export function randomCustomer(state: GameState, rng: Rng, d: Difficulty, focus?
     else other.birth = `${Number(other.birth.slice(0, 4)) + rng.int(1, 3)}${other.birth.slice(4)}`;
   }
 
-  const spareDoc = expired && rng.chance(0.7) ? makeSpareDoc(rng, person, today) : undefined;
+  const spareDoc = (expired && rng.chance(0.7)) || (photoAltered && rng.chance(0.35)) ? makeSpareDoc(rng, person, today) : undefined;
   const c: Customer = {
     id: newId(state, 'c'),
     person,

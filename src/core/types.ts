@@ -143,6 +143,7 @@ export type FindingKind =
   | 'fake_purity'
   | 'stolen'
   | 'doc_expired'
+  | 'repeat_visit'
   | 'doc_forged'
   | 'photo_mismatch'
   | 'name_mismatch'

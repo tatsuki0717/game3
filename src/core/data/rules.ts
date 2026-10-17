@@ -15,7 +15,8 @@ export type Cond =
   | { categoryIn: Category[] }
   | { repeatToday: true }
   | { lacksDocKind: 'employment' }
-  | { ticketMismatch: true };
+  | { ticketMismatch: true }
+  | { docConflict: true };
 
 export interface RuleDef {
   id: string;
@@ -35,8 +36,8 @@ export const RULES: RuleDef[] = [
     id: 'photo_id',
     unlockDay: 1,
     title: '本人確認',
-    text: '質入れ・買取には、有効期限内の顔写真付き身分証（運転免許証・旅券）が必要。写真が本人と一致すること。偽造は無効。',
-    violation: { all: [{ intentIn: DEALS }, { noValidPhotoId: true }] },
+    text: '質入れ・買取には、有効期限内の顔写真付き身分証（運転免許証・旅券）が必要。写真が本人と一致すること。偽造は無効。提示された書類どうしの氏名・生年月日も一致すること。',
+    violation: { all: [{ intentIn: DEALS }, { any: [{ noValidPhotoId: true }, { docConflict: true }] }] },
     fine: 10_000,
     points: 1,
     detectChance: 0.45,

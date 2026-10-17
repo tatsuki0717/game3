@@ -392,9 +392,9 @@ function refBody(s: GameState): HTMLElement {
       return h('div', null,
         h('h4', null, '本日取引した人物'),
         s.todayVisitors.length
-          ? h('ul', { class: 'visitors' }, ...s.todayVisitors.map((k) => {
+          ? h('ul', { class: 'visitors' }, ...s.todayVisitors.map((k, i) => {
             const [name, birth] = k.split('|');
-            return h('li', null, `${name}（${toWareki(birth)}生）`);
+            return h('li', null, ref(`visitor.${i}`, `${name}（${toWareki(birth)}生）`));
           }))
           : h('p', { class: 'muted' }, 'まだいない。'),
         h('h4', null, '本日の帳簿'),

@@ -124,6 +124,17 @@ describe('compliance', () => {
     expect(evalCond(RULE_MAP.photo_id.violation, tx)).toBe(true);
   });
 
+  it('treats a second document with another name as a photo-ID violation for deals only', () => {
+    const s = newGame(7);
+    const c = customerWith(s, 'ring_k18');
+    const other = makeDoc(new Rng(5), c.person, 'insurance', dateOfDay(1));
+    other.name = '別所 太郎';
+    c.docs.push(other);
+    const pawn: TxContext = { intent: 'pawn', amount: 10_000, customer: c, today: dateOfDay(1), visitors: [] };
+    expect(evalCond(RULE_MAP.photo_id.violation, pawn)).toBe(true);
+    expect(evalCond(RULE_MAP.photo_id.violation, { ...pawn, intent: 'redeem' })).toBe(false);
+  });
+
   it('applies the outsider rule only above the amount', () => {
     const s = newGame(8);
     const c = customerWith(s, 'ring_k18');
@@ -334,5 +345,58 @@ describe('expired ID', () => {
     const r = pointOut(sessionFor(s, c), expired, new Rng(1));
     expect(r.fled).toBe(true);
     expect(c.docs).toHaveLength(1);
+  });
+});
+
+describe('document mismatch', () => {
+  const photo: Finding = { key: 'photo_mismatch:0', kind: 'photo_mismatch', label: '写真が本人と一致しない', pointable: true, reportable: false };
+
+  it('lets the customer produce a spare card when a photo is pointed out', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    c.spareDoc = makeDoc(new Rng(4), c.person, 'license', dateOfDay(s.day));
+    const r = pointOut(sessionFor(s, c), photo, new Rng(1));
+    expect(r.fled).toBe(false);
+    expect(c.docs).toHaveLength(2);
+  });
+
+  it('makes an honest customer walk out when no other card is at hand', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    expect(pointOut(sessionFor(s, c), photo, new Rng(1)).fled).toBe(true);
+  });
+
+  it('lets a liar insist and stay', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    c.personality = 'liar';
+    expect(pointOut(sessionFor(s, c), photo, new Rng(1)).fled).toBe(false);
+    expect(c.docs).toHaveLength(1);
+  });
+});
+
+describe('repeat visitor', () => {
+  it('finds the same name and birth among today\'s visitors', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    s.todayVisitors = [`${c.docs[0].name}|${c.docs[0].birth}`];
+    const r = compare(s, sessionFor(s, c), 'doc.0.name', 'visitor.0');
+    expect(r.match).toBe(false);
+    expect(r.finding?.kind).toBe('repeat_visit');
+  });
+
+  it('treats another name or birth as another person', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    s.todayVisitors = ['別所 太郎|1970-01-01'];
+    const r = compare(s, sessionFor(s, c), 'doc.0.birth', 'visitor.0');
+    expect(r.match).toBe(true);
+    expect(r.finding).toBeUndefined();
+  });
+
+  it('rejects a visitor who has not come in today', () => {
+    const s = newGame(1);
+    const c = customerWith(s, 'camera_f3');
+    expect(compare(s, sessionFor(s, c), 'doc.0.name', 'visitor.3').invalid).toBe(true);
   });
 });

@@ -188,7 +188,7 @@ function compareOrdered(state: GameState, session: Session, a: string, b: string
       return {
         match: false,
         message: '写真の顔が目の前の客と違う！',
-        finding: { key: `photo_mismatch:${da.i}`, kind: 'photo_mismatch', label: '写真が本人と一致しない', pointable: false, reportable: false },
+        finding: { key: `photo_mismatch:${da.i}`, kind: 'photo_mismatch', label: '写真が本人と一致しない', pointable: true, reportable: false },
       };
     }
     const db = docField(session, b);
@@ -200,7 +200,7 @@ function compareOrdered(state: GameState, session: Session, a: string, b: string
       return {
         match: false,
         message: da.field === 'name' ? '書類によって名前が違う！' : '書類によって生年月日が違う！',
-        finding: { key: kind, kind, label: da.field === 'name' ? '書類間で氏名が不一致' : '書類間で生年月日が不一致', pointable: false, reportable: false },
+        finding: { key: kind, kind, label: da.field === 'name' ? '書類間で氏名が不一致' : '書類間で生年月日が不一致', pointable: true, reportable: false },
       };
     }
     if (da.field === 'name' && b === 'ticket.name' && c.ticket) {
@@ -211,6 +211,19 @@ function compareOrdered(state: GameState, session: Session, a: string, b: string
         finding: { key: 'ticket_mismatch', kind: 'ticket_mismatch', label: '質札の名義人ではない', pointable: false, reportable: false },
       };
     }
+  }
+  // 本日の取引の人物（氏名・生年月日の組で比べる）。同一人物なら同日の再取引になる
+  const visitor = /^visitor\.(\d+)$/.exec(b);
+  if (da && visitor && (da.field === 'name' || da.field === 'birth')) {
+    const key = state.todayVisitors[Number(visitor[1])];
+    if (key === undefined) return { match: false, invalid: true, message: 'その人物は本日の取引にない。' };
+    const doc = c.docs[da.i];
+    if (`${doc.name}|${doc.birth}` !== key) return { match: true, message: '本日の取引の人物とは別人だ。' };
+    return {
+      match: false,
+      message: '本日すでに取引した人物と同じ氏名・生年月日だ！',
+      finding: { key: `repeat_visit:${visitor[1]}`, kind: 'repeat_visit', label: '本日取引済みの人物と一致', pointable: false, reportable: false },
+    };
   }
   return null;
 }
@@ -231,6 +244,7 @@ export function refLabel(ref: string): string {
   };
   if (map[ref]) return map[ref];
   if (ref.startsWith('stolen.')) return `手配書 ${ref.slice(7)}`;
+  if (/^visitor\.\d+$/.test(ref)) return '本日の取引の人物';
   const m = /^doc\.(\d+)\.(\w+)$/.exec(ref);
   if (m) {
     const f: Record<string, string> = { name: '氏名', birth: '生年月日', expiry: '有効期限', photo: '写真', address: '住所' };

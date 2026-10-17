@@ -50,6 +50,7 @@ export function evalCond(cond: Cond, tx: TxContext): boolean {
   if ('repeatToday' in cond) return tx.visitors.includes(personKey(c));
   if ('lacksDocKind' in cond) return !c.docs.some((d) => d.kind === cond.lacksDocKind && !d.forged && d.name === c.person.name);
   if ('ticketMismatch' in cond) return !!c.impostor;
+  if ('docConflict' in cond) return c.docs.some((d) => d.name !== c.person.name || d.birth !== c.person.birth);
   return false;
 }
 

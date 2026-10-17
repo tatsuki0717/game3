@@ -32,6 +32,9 @@ export interface PointResult {
   fled: boolean;
 }
 
+/** 書類どうしや写真が食い違う指摘。指摘すると客は別の身分証を出すか、答えに困る */
+export const DOC_MISMATCH_KINDS: string[] = ['photo_mismatch', 'name_mismatch', 'birth_mismatch'];
+
 /** 欠陥・偽物の指摘。客の希望額と最低額が下がる。 */
 export function pointOut(session: Session, finding: Finding, rng: Rng): PointResult {
   const c = session.customer;
@@ -41,6 +44,16 @@ export function pointOut(session: Session, finding: Finding, rng: Rng): PointRes
     c.docs.push(c.spareDoc);
     c.spareDoc = undefined;
     return { line: 'えっ、期限切れ！？ …じゃあ、こっちの免許証で。', fled: false };
+  }
+  if (DOC_MISMATCH_KINDS.includes(finding.kind)) {
+    if (c.spareDoc) {
+      c.docs.push(c.spareDoc);
+      c.spareDoc = undefined;
+      return { line: '…それなら、こっちの免許証で確かめてください。', fled: false };
+    }
+    // 手元に別の証明がなければ、正直な客は引き下がり、嘘つきは言い張って残る
+    if (c.personality === 'liar') return { line: '…私のです。', fled: false };
+    return { line: '…家族のものです。出直します。', fled: true };
   }
   const fake = finding.kind.startsWith('fake_');
   if (fake) {

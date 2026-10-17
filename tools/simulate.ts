@@ -7,6 +7,7 @@ import { committedExpenses, dispatch, newGame, shelfSlots, type Action } from '.
 import { hadLegalReason } from '../src/core/systems/compliance';
 import { apparentValue, bankLimit, shopperValue } from '../src/core/systems/economy';
 import { trueValue } from '../src/core/systems/generate';
+import { DOC_MISMATCH_KINDS } from '../src/core/systems/negotiation';
 import type { GameState, ToolId } from '../src/core/types';
 
 type Strategy = 'careful' | 'manager' | 'naive';
@@ -21,6 +22,22 @@ function reserve(s: GameState): number {
   if (!next) return base;
   const daysLeft = next[0] - s.day;
   return base + next[1] * Math.max(0, 1 - daysLeft / 6);
+}
+
+/** 今いる客の書類を、道具と照合で一通り調べる（写真・期限・生年月日・書類どうしの名義と生年月日） */
+function checkDocs(s: GameState): GameState {
+  const docs = () => s.session!.customer.docs;
+  for (let i = 0; i < docs().length && !s.session!.closed; i++) {
+    if (s.tools.includes('uv')) s = act(s, { type: 'USE_TOOL', tool: 'uv', target: `doc.${i}` });
+    if (docs()[i].photo) s = act(s, { type: 'COMPARE', a: `doc.${i}.photo`, b: 'face' });
+    s = act(s, { type: 'COMPARE', a: `doc.${i}.expiry`, b: 'today' });
+    s = act(s, { type: 'COMPARE', a: `doc.${i}.birth`, b: 'today' });
+    for (let j = 0; j < i; j++) {
+      s = act(s, { type: 'COMPARE', a: `doc.${i}.name`, b: `doc.${j}.name` });
+      s = act(s, { type: 'COMPARE', a: `doc.${i}.birth`, b: `doc.${j}.birth` });
+    }
+  }
+  return s;
 }
 
 function handleCustomer(s: GameState, strategy: Strategy): GameState {
@@ -43,16 +60,12 @@ function handleCustomer(s: GameState, strategy: Strategy): GameState {
   const cur = () => s.session!;
   if (cur().closed) return s;
   if (strategy !== 'naive') {
-    // 期限切れを指摘すると、別の身分証を出してくることがある。出てきたら同じように調べる
-    const expired = cur().findings.find((f) => f.kind === 'doc_expired');
-    if (expired) {
-      s = act(s, { type: 'POINT_OUT', key: expired.key });
-      for (let i = 0; i < cur().customer.docs.length && !cur().closed; i++) {
-        if (s.tools.includes('uv')) s = act(s, { type: 'USE_TOOL', tool: 'uv', target: `doc.${i}` });
-        if (cur().customer.docs[i].photo) s = act(s, { type: 'COMPARE', a: `doc.${i}.photo`, b: 'face' });
-        s = act(s, { type: 'COMPARE', a: `doc.${i}.expiry`, b: 'today' });
-        s = act(s, { type: 'COMPARE', a: `doc.${i}.birth`, b: 'today' });
-      }
+    s = checkDocs(s);
+    // 指摘できる書類の不一致（期限切れなど）を指摘すると、別の身分証が出てくることがある。出てきたら調べ直す
+    for (const f of cur().findings.filter((x) => x.pointable && (x.kind === 'doc_expired' || DOC_MISMATCH_KINDS.includes(x.kind)))) {
+      if (cur().closed) break;
+      s = act(s, { type: 'POINT_OUT', key: f.key });
+      s = checkDocs(s);
     }
   }
   if (cur().closed) return s;
