@@ -51,7 +51,8 @@ export function historyPoints(s: GameState): Point[] {
   return pts;
 }
 
-export function historyChart(s: GameState): HTMLElement {
+/** table：数値の表を「表で見る」で開けるようにする（画面に余白がないときは外す） */
+export function historyChart(s: GameState, opts: { table?: boolean } = {}): HTMLElement {
   const pts = historyPoints(s);
   const maxV = Math.max(CONFIG.startDebt, ...pts.map((p) => p.money));
   const minV = Math.min(0, ...pts.map((p) => p.money));
@@ -128,7 +129,7 @@ export function historyChart(s: GameState): HTMLElement {
       h('span', { class: 'muted' }, h('i', { class: 'key due' }), '定期返済日'),
     ),
     h('div', { class: 'chart-wrap' }, root, tip),
-    h('details', { class: 'chart-table' },
+    opts.table === false ? null : h('details', { class: 'chart-table' },
       h('summary', null, '表で見る'),
       h('table', null,
         h('tr', null, h('th', null, '日'), ...SERIES.map((sr) => h('th', null, sr.label))),

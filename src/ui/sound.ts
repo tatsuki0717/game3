@@ -15,7 +15,8 @@ export type Sfx =
   | 'error' // 操作できない
   | 'tick' // 閉店前の秒針
   | 'paper' // 新聞をめくる
-  | 'night'; // 閉店
+  | 'night' // 閉店
+  | 'cursor'; // メニューのカーソル移動・タブ切り替え
 
 let ctx: AudioContext | null = null;
 let muted = readMuted();
@@ -151,6 +152,9 @@ export function play(name: Sfx): void {
       tone(ac, 523, 0, 0.6, { type: 'sine', gain: 0.08 });
       tone(ac, 392, 0.25, 0.8, { type: 'sine', gain: 0.08 });
       tone(ac, 262, 0.5, 1.2, { type: 'sine', gain: 0.08 });
+      break;
+    case 'cursor':
+      tone(ac, 1046, 0, 0.05, { type: 'square', gain: 0.035 });
       break;
   }
 }
