@@ -9,6 +9,7 @@ import { interestOf, saleProbability, shopperValue, wholesalePrice } from '../co
 import type { GameState, InventoryItem } from '../core/types';
 import { debtMeter, historyChart } from './chart';
 import { h } from './dom';
+import { categoryIcon } from './pixel';
 import { hud } from './screens';
 import { act } from './store';
 
@@ -25,7 +26,7 @@ function inventoryRow(s: GameState, inv: InventoryItem): HTMLElement {
   const p = inv.shelved ? saleProbability(s, inv) : saleProbability(s, { ...inv, price: Number(draft) || 0 });
   const chance = p >= 0.5 ? '高' : p >= 0.25 ? '中' : '低';
   return h('tr', { class: inv.shelved ? 'shelved' : '' },
-    h('td', null, `${def.emoji} ${def.name}`, h('small', null, inv.source === 'forfeit' ? '質流れ' : inv.source === 'story' ? '祖父の金庫' : '買取')),
+    h('td', { class: 'inv-name' }, categoryIcon(def.category), h('span', null, def.name), h('small', null, inv.source === 'forfeit' ? '質流れ' : inv.source === 'story' ? '祖父の金庫' : '買取')),
     h('td', null, CONDITION_LABEL[inv.item.condition].slice(0, 1)),
     h('td', null, yen(inv.cost)),
     h('td', null, yen(wholesalePrice(s, inv))),
@@ -75,7 +76,7 @@ export function nightScreen(s: GameState): HTMLElement {
 
   return h('div', { class: 'screen night' },
     hud(s),
-    h('div', { class: 'night-grid' },
+    h('div', { class: 'night-body', 'data-scroll': 'night' }, h('div', { class: 'night-grid' },
       h('section', { class: 'panel wide report' },
         h('h3', null, `${s.day} 日目の日報`),
         h('div', { class: 'stats' },
@@ -114,7 +115,7 @@ export function nightScreen(s: GameState): HTMLElement {
         h('p', null, '家族：', h('b', null, familyState)),
         h('p', { class: after < 0 ? 'neg' : '' }, `支払い後の所持金：${yen(after)}`),
         installment && s.money < committed
-          ? h('p', { class: 'warn-text' }, '⚠ 定期返済に足りない！ このまま眠ると店は差し押さえられる。在庫を業者に売ってでも現金を作れ。')
+          ? h('p', { class: 'warn-text' }, '定期返済に足りない！ このまま眠ると店は差し押さえられる。在庫を業者に売ってでも現金を作れ。')
           : null,
       ),
       h('section', { class: 'panel' },
@@ -178,6 +179,6 @@ export function nightScreen(s: GameState): HTMLElement {
     ),
     h('div', { class: 'night-foot' },
       h('button', { class: 'btn primary big', onclick: () => { priceDrafts.clear(); act({ type: 'END_NIGHT' }); } }, s.day >= CONFIG.totalDays ? '最終日を終える' : '眠る（翌日へ）'),
-    ),
+    )),
   );
 }

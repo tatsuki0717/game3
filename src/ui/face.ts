@@ -89,3 +89,54 @@ export function faceSvg(f: FaceParts, opts: { size?: number; photo?: boolean; mo
   }
   return `<svg viewBox="0 0 100 120" width="${size}" height="${Math.round(size * 1.2)}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="顔">${parts.join('')}</svg>`;
 }
+
+// ---------------------------------------------------------------- ドット絵化
+
+/** 顔を描く解像度。表示時に整数倍で拡大し、ドット絵として見せる */
+const FACE_W = 48;
+const FACE_H = 58;
+const faceCache = new Map<string, string>();
+const pending = new Set<string>();
+
+function faceKey(f: FaceParts, mood: Mood, photo: boolean): string {
+  return `${Object.values(f).join(',')}|${mood}|${photo ? 1 : 0}`;
+}
+
+/** SVG を低解像度の canvas に描き、半透明を切り捨ててドットの輪郭をはっきりさせる */
+function rasterize(key: string, markup: string): void {
+  if (pending.has(key)) return;
+  pending.add(key);
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = FACE_W;
+    canvas.height = FACE_H;
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    g.drawImage(img, 0, 0, FACE_W, FACE_H);
+    const data = g.getImageData(0, 0, FACE_W, FACE_H);
+    for (let i = 3; i < data.data.length; i += 4) data.data[i] = data.data[i] >= 110 ? 255 : 0;
+    g.putImageData(data, 0, 0);
+    const url = canvas.toDataURL();
+    faceCache.set(key, url);
+    pending.delete(key);
+    for (const el of document.querySelectorAll<HTMLImageElement>(`img[data-face="${CSS.escape(key)}"]`)) el.src = url;
+  };
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+}
+
+/** ドット絵の顔。scale は整数倍の拡大率 */
+export function faceImg(f: FaceParts, opts: { scale: number; photo?: boolean; mood?: Mood }): HTMLImageElement {
+  const mood = opts.photo ? 'neutral' : opts.mood ?? 'neutral';
+  const key = faceKey(f, mood, !!opts.photo);
+  const img = document.createElement('img');
+  img.className = 'px-face';
+  img.width = FACE_W * opts.scale;
+  img.height = FACE_H * opts.scale;
+  img.alt = opts.photo ? '証明写真' : '客の顔';
+  img.dataset.face = key;
+  const cached = faceCache.get(key);
+  if (cached) img.src = cached;
+  else rasterize(key, faceSvg(f, { size: FACE_W, photo: opts.photo, mood }));
+  return img;
+}

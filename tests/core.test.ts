@@ -12,6 +12,7 @@ import { makeDoc, makeItem, randomPerson } from '../src/core/systems/generate';
 import { respondToOffer } from '../src/core/systems/negotiation';
 import type { Customer, GameState, Session } from '../src/core/types';
 import { playthrough } from '../tools/simulate';
+import { ICON_ROWS } from '../src/ui/pixel';
 
 function run(s: GameState, ...actions: Action[]): GameState {
   for (const a of actions) s = dispatch(s, a).state;
@@ -218,6 +219,15 @@ describe('game flow', () => {
     s = run(s, { type: 'END_NIGHT' });
     expect(s.phase).toBe('ending');
     expect(s.ending).toBe('foreclosed');
+  });
+});
+
+describe('pixel icons', () => {
+  it('are 12×12 maps using only palette characters', () => {
+    for (const rows of Object.values(ICON_ROWS)) {
+      expect(rows).toHaveLength(12);
+      for (const row of rows) expect(row).toMatch(/^[.kwgGsSrbnc]{12}$/);
+    }
   });
 });
 

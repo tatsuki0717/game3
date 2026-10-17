@@ -8,8 +8,9 @@ import { TOOL_INFO } from '../core/data/schedule';
 import { STORY_VISITS } from '../core/data/story';
 import { refLabel } from '../core/systems/appraisal';
 import type { Customer, DocKind, GameState, IdDoc, Session, ToolId } from '../core/types';
-import { h, svgEl } from './dom';
-import { faceSvg, type Mood } from './face';
+import { h } from './dom';
+import { faceImg, type Mood } from './face';
+import { categoryIcon } from './pixel';
 import { hud } from './screens';
 import { act, notify, toast, ui } from './store';
 
@@ -92,7 +93,7 @@ function itemCard(s: GameState, ses: Session): HTMLElement | null {
     class: `card item-card ${ui.pendingTool ? 'targetable' : ''}`,
     onclick: () => targetClick('item'),
   },
-    h('div', { class: 'card-title' }, h('span', { class: 'item-emoji' }, def.emoji), h('div', null, h('b', null, def.name), h('small', null, `${CATEGORY_LABEL[def.category]}（自己申告）`))),
+    h('div', { class: 'card-title' }, categoryIcon(def.category, 3), h('div', null, h('b', null, def.name), h('small', null, `${CATEGORY_LABEL[def.category]}（自己申告）`))),
     fact('刻印', r('item.hallmark') ? ref('item.hallmark', item.hallmark, 'mono') : unknown('ルーペ')),
     def.serialPrefix ? fact('シリアル', r('item.serial') ? ref('item.serial', item.serial ?? '', 'mono') : unknown('ルーペ')) : null,
     fact('状態', r('item.condition')
@@ -123,7 +124,7 @@ function docCard(s: GameState, doc: IdDoc, i: number, c: Customer): HTMLElement 
   },
     h('div', { class: 'doc-head' }, DOC_LABEL[doc.kind], h('small', null, `No. ${doc.idNo}`)),
     h('div', { class: 'doc-body' },
-      doc.photo ? ref(r('photo'), svgEl(faceSvg(doc.photo, { size: 64, photo: true })), 'photo') : null,
+      doc.photo ? ref(r('photo'), faceImg(doc.photo, { scale: 2, photo: true }), 'photo') : null,
       h('div', { class: 'doc-fields' },
         fact('氏名', ref(r('name'), doc.name)),
         fact('生年月日', ref(r('birth'), toWareki(doc.birth))),
@@ -244,7 +245,7 @@ function toolsTray(s: GameState): HTMLElement {
           title: `${info.name}（${info.minutes} 分）［${i + 1}］`,
           'data-key': `tool-${i + 1}`,
           onclick: () => useTool(t),
-        }, h('span', { class: 'tool-emoji' }, info.emoji), h('span', null, info.name), h('small', null, used ? '✓ 済' : `${info.minutes}分`), h('kbd', null, String(i + 1)));
+        }, h('kbd', null, String(i + 1)), h('span', { class: 'tool-name' }, info.name), h('small', null, used ? '済' : `${info.minutes}分`));
       }),
     ),
     h('div', { class: 'tray-row' },
@@ -254,8 +255,8 @@ function toolsTray(s: GameState): HTMLElement {
         'data-key': 'compare',
         title: '照合モード［C］',
         onclick: () => { ui.compareMode = !ui.compareMode; ui.compareFirst = null; ui.pendingTool = null; notify(); },
-      }, ui.compareMode ? '🔗 照合モード中（2 項目をクリック）' : '🔗 照合'),
-      ref('today', `📅 本日 ${toWareki(today)}`, 'today-chip'),
+      }, h('kbd', null, 'C'), ui.compareMode ? '照合中：2 項目を選ぶ' : '照合'),
+      ref('today', `本日 ${toWareki(today)}`, 'today-chip'),
     ),
   );
 }
@@ -334,7 +335,6 @@ function actionPanel(s: GameState): HTMLElement {
     notify();
   };
   return h('div', { class: 'panel actions' },
-    s.day <= 2 ? h('p', { class: 'hint' }, 'ヒント：道具で品物を調べ、「照合」→ 品物の刻印 → カタログの刻印 のように 2 項目をクリックして不一致を探そう。身分証の有効期限は「本日」の日付と照合する。') : null,
     h('div', { class: 'ask' },
       h('span', null, c.intent === 'pawn' ? '質入れ希望' : '買取希望'),
       h('b', null, yen(ses.ask)),
@@ -353,7 +353,7 @@ function actionPanel(s: GameState): HTMLElement {
     ),
     h('div', { class: 'btn-row' },
       h('button', { class: 'btn danger', onclick: () => act({ type: 'REFUSE' }) }, '断る'),
-      h('button', { class: 'btn warn', disabled: !reportable, title: reportable ? '' : '盗品や偽造身分証の証拠が必要', onclick: () => act({ type: 'REPORT' }) }, '🚓 通報'),
+      h('button', { class: 'btn warn', disabled: !reportable, title: reportable ? '' : '盗品や偽造身分証の証拠が必要', onclick: () => act({ type: 'REPORT' }) }, '通報'),
     ),
   );
 }
@@ -364,7 +364,7 @@ function referencePanel(s: GameState): HTMLElement {
     h('div', { class: 'tabs' }, ...tabs.map(([id, label]) =>
       h('button', { class: `tab ${ui.refTab === id ? 'active' : ''}`, onclick: () => { ui.refTab = id; notify(); } }, label),
     )),
-    h('div', { class: 'tab-body' }, refBody(s)),
+    h('div', { class: 'tab-body', 'data-scroll': 'ref' }, refBody(s)),
   );
 }
 
@@ -418,7 +418,7 @@ function catalogEntry(s: GameState, defId: string, current: boolean): HTMLElemen
   const m = s.market[d.category];
   const price = catalogPrice(s, defId);
   return h('div', { class: `cat-entry ${current ? 'current' : ''}` },
-    h('div', { class: 'cat-name' }, h('span', null, d.emoji), h('b', null, d.name), h('small', null, CATEGORY_LABEL[d.category])),
+    h('div', { class: 'cat-name' }, categoryIcon(d.category), h('b', null, d.name), h('small', null, CATEGORY_LABEL[d.category])),
     h('div', { class: 'cat-facts' },
       h('span', null, '相場（新品同様）', h('b', null, yen(price)), m >= 1.05 ? h('span', { class: 'up' }, '▲') : m <= 0.95 ? h('span', { class: 'down' }, '▼') : null),
       h('span', null, '刻印 ', current ? ref('catalog.hallmark', d.hallmark, 'mono') : h('span', { class: 'mono' }, d.hallmark)),
@@ -451,35 +451,34 @@ export function counterScreen(s: GameState): HTMLElement {
   const c = ses?.customer;
   return h('div', { class: `screen counter ${ui.compareMode ? 'compare-on' : ''} ${ui.pendingTool ? 'tool-on' : ''}` },
     hud(s),
-    h('div', { class: 'counter-grid' },
-      h('div', { class: 'left' },
-        h('div', { class: 'shopfront' },
-          h('div', { class: 'portrait' },
-            c ? ref('face', svgEl(faceSvg(c.person.face, { size: 130, mood: moodOf(ses!) })), `face ${arriving(c.id) ? 'arrive' : ''}`) : h('div', { class: 'empty-portrait' }, s.queue.length ? '…' : ''),
-            ses ? patienceMeter(ses) : null,
-            h('div', { class: 'queue' }, `待ち ${s.queue.length} 人`),
-          ),
-          h('div', { class: 'chat' },
-            ...(ses?.chat ?? [{ who: 'system' as const, text: s.clock >= CONFIG.closeMinute ? '閉店の時間だ。' : '「次の方、どうぞ」で客を呼ぼう。' }]).map((l) =>
-              h('div', { class: `line ${l.who}` }, l.text),
-            ),
-          ),
-        ),
-        h('div', { class: 'desk' },
-          c ? [
-            ...c.docs.map((d, i) => docCard(s, d, i, c)),
-            itemCard(s, ses!),
-            catalogCard(s, c),
-            ticketCard(c),
-            stamp(ses!),
-          ] : h('div', { class: 'desk-empty' }, '作業机'),
-        ),
+    h('div', { class: 'scene' },
+      h('div', { class: 'street' }, ...Array.from({ length: Math.min(6, s.queue.length) }, (_, i) => h('i', { class: `waiting w${i % 3}` }))),
+      h('div', { class: 'booth' },
+        c
+          ? ref('face', faceImg(c.person.face, { scale: 3, mood: moodOf(ses!) }), `face ${arriving(c.id) ? 'arrive' : ''}`)
+          : h('div', { class: 'empty-portrait' }, s.queue.length ? '' : '本日の客は以上'),
       ),
-      h('div', { class: 'right' },
-        toolsTray(s),
-        actionPanel(s),
-        referencePanel(s),
-      ),
+      ses ? patienceMeter(ses) : null,
+      h('div', { class: 'queue' }, `待ち ${s.queue.length} 人`),
     ),
+    h('div', { class: 'chat', 'data-scroll': 'chat' },
+      ...(ses?.chat ?? [{ who: 'system' as const, text: s.clock >= CONFIG.closeMinute ? '閉店の時間だ。' : '「次の方、どうぞ」で客を呼ぼう。' }]).map((l) =>
+        h('div', { class: `line ${l.who}` }, l.text),
+      ),
+      s.day <= 2 && ses && !ses.closed && ses.customer.item
+        ? h('div', { class: 'line hint' }, 'ヒント：道具で調べてから［照合］で 2 項目を選ぶ（品物の刻印とカタログの刻印、有効期限と本日 など）。')
+        : null,
+    ),
+    h('div', { class: 'desk', 'data-scroll': 'desk' },
+      c ? [
+        ...c.docs.map((d, i) => docCard(s, d, i, c)),
+        itemCard(s, ses!),
+        catalogCard(s, c),
+        ticketCard(c),
+        stamp(ses!),
+      ] : h('div', { class: 'desk-empty' }, '作業机'),
+    ),
+    toolsTray(s),
+    h('div', { class: 'side' }, actionPanel(s), referencePanel(s)),
   );
 }

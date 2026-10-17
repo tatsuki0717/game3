@@ -25,7 +25,7 @@ export function hud(s: GameState): HTMLElement {
       title: isMuted() ? '効果音をオンにする' : '効果音をオフにする',
       'aria-label': isMuted() ? '効果音をオンにする' : '効果音をオフにする',
       onclick: () => { toggleMute(); notify(); },
-    }, isMuted() ? '🔇' : '🔊'),
+    }, isMuted() ? '音 切' : '音 入'),
   );
 }
 
@@ -73,7 +73,7 @@ export function morningScreen(s: GameState): HTMLElement {
   const nextInstallment = Object.entries(CONFIG.installments).map(([d, v]) => [Number(d), v] as const).find(([d]) => d >= s.day);
   return h('div', { class: 'screen morning' },
     hud(s),
-    h('div', { class: 'paper' },
+    h('div', { class: 'paper-scroll', 'data-scroll': 'paper' }, h('div', { class: 'paper' },
       h('div', { class: 'paper-head' },
         h('span', { class: 'paper-name' }, '潮見新報'),
         h('span', null, toWareki(dateOfDay(s.day))),
@@ -101,12 +101,12 @@ export function morningScreen(s: GameState): HTMLElement {
         ),
       ),
       m.newRules.length
-        ? h('div', { class: 'new-rules' }, h('h4', null, '📜 新しい規則（規則帳に追加）'), ...m.newRules.map((r) => h('p', null, r)))
+        ? h('div', { class: 'new-rules' }, h('h4', null, '新しい規則（規則帳に追加）'), ...m.newRules.map((r) => h('p', null, r)))
         : null,
       h('div', { class: 'paper-foot' },
         h('button', { class: 'btn primary big', 'data-key': 'next', onclick: () => act({ type: 'BEGIN_COUNTER' }) }, '店を開ける', h('kbd', null, 'Enter')),
       ),
-    ),
+    )),
   );
 }
 

@@ -22,10 +22,3 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props?: Props, 
   }
   return el;
 }
-
-export function svgEl(markup: string): HTMLElement {
-  const wrap = document.createElement('span');
-  wrap.className = 'svg-wrap';
-  wrap.innerHTML = markup;
-  return wrap;
-}

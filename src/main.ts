@@ -28,10 +28,24 @@ function moneyFloater(): void {
   anchor?.append(h('span', { class: `floater ${delta > 0 ? 'pos' : 'neg'}` }, `${delta > 0 ? '+' : ''}${yen(delta)}`));
 }
 
+// 画面は固定幅のステージに描き、ウィンドウに合わせて拡大縮小する。
+// 横長は 1280×720 固定。縦持ちは幅 540 で、高さは端末の縦横比に合わせて伸ばす（机を広く取るため）。
+function fitStage(): void {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const portrait = vh > vw * 1.15;
+  const w = portrait ? 540 : 1280;
+  const hgt = portrait ? Math.max(960, Math.round((540 * vh) / vw)) : 720;
+  root.style.setProperty('--stage-w', `${w}px`);
+  root.style.setProperty('--stage-h', `${hgt}px`);
+  root.style.setProperty('--scale', String(Math.min(vw / w, vh / hgt)));
+  root.dataset.orientation = portrait ? 'portrait' : 'landscape';
+}
+
 function render(): void {
-  const scrollY = window.scrollY;
-  const refBody = document.querySelector('.tab-body');
-  const refScroll = refBody?.scrollTop ?? 0;
+  // 中でスクロールする領域（机・資料・帳簿など）の位置を描き直しの前後で保つ
+  const scrolls = new Map<string, number>();
+  for (const el of root.querySelectorAll<HTMLElement>('[data-scroll]')) scrolls.set(el.dataset.scroll!, el.scrollTop);
   let screen: HTMLElement;
   if (ui.screen === 'title' || !hasState()) screen = titleScreen();
   else {
@@ -50,15 +64,21 @@ function render(): void {
         screen = endingScreen(s);
     }
   }
+  screen.classList.add('stage');
+  if (ui.toast) screen.append(h('div', { class: 'toast' }, ui.toast));
   root.replaceChildren(screen);
-  if (ui.toast) root.append(h('div', { class: 'toast' }, ui.toast));
-  const chat = root.querySelector('.chat');
-  if (chat) chat.scrollTop = chat.scrollHeight;
-  const nb = root.querySelector('.tab-body');
-  if (nb) nb.scrollTop = refScroll;
-  window.scrollTo(0, scrollY);
+  for (const el of root.querySelectorAll<HTMLElement>('[data-scroll]')) {
+    el.scrollTop = el.dataset.scroll === 'chat' ? el.scrollHeight : scrolls.get(el.dataset.scroll!) ?? 0;
+  }
   moneyFloater();
 }
+
+fitStage();
+window.addEventListener('resize', () => {
+  const before = root.dataset.orientation;
+  fitStage();
+  if (before !== root.dataset.orientation) render();
+});
 
 subscribe(render);
 render();
