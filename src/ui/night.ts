@@ -1,13 +1,15 @@
 // 夜の帳簿画面。スクロールさせず、左のコマンドメニュー（タブ）で 1 画面ずつ切り替える。
 // 件数が多い一覧（帳簿・在庫・質札）はページ送りにする。
 
-import { CONDITION_LABEL, CONFIG } from '../core/config';
+import { CONDITION_LABEL, CONFIG, DEFECT_LABEL } from '../core/config';
 import { dateOfDay, toWareki, yen } from '../core/dates';
-import { itemDef } from '../core/data/items';
+import { CATEGORIES, CATEGORY_LABEL, itemDef } from '../core/data/items';
 import { UPGRADES } from '../core/data/schedule';
 import { committedExpenses, maxRate, shelfSlots } from '../core/game';
-import { interestOf, saleProbability, shopperValue, wholesalePrice } from '../core/systems/economy';
-import type { GameState, InventoryItem } from '../core/types';
+import {
+  adCost, balanceSheet, bankInterest, bankLimit, interestOf, knownHiddenDefects, redeemProbability, saleProbability, shopperValue, wholesalePrice,
+} from '../core/systems/economy';
+import type { AdPlan, Category, DealerLot, GameState, InventoryItem } from '../core/types';
 import { debtMeter, historyChart } from './chart';
 import { h } from './dom';
 import { categoryIcon } from './pixel';
@@ -16,6 +18,9 @@ import { play } from './sound';
 import { act, notify, ui, type NightTab } from './store';
 
 const priceDrafts = new Map<string, string>();
+let adCategory: Category = 'watch';
+const SOURCE_LABEL: Record<InventoryItem['source'], string> = { forfeit: '質流れ', story: '祖父の金庫', bought: '買取', dealer: '仕入れ' };
+const TREND = (m: number) => (m >= 1.05 ? '▲' : m <= 0.95 ? '▼' : '');
 
 const isPortrait = () => document.getElementById('app')?.dataset.orientation === 'portrait';
 
@@ -103,6 +108,8 @@ function reportTab(s: GameState): HTMLElement {
   const active = s.loans.filter((l) => l.status === 'active');
   const dueTomorrow = active.filter((l) => l.dueDay <= s.day + 1).length;
   const buyable = UPGRADES.filter((u) => !s.upgrades.includes(u.id) && s.day >= u.availableDay && s.money >= u.price).length;
+  const bs = balanceSheet(s);
+  const lots = s.dealerLots ?? [];
   const familyBad = s.family.sick || s.family.hunger > 0 || s.family.cold > 0;
   const tile = (label: string, value: string, cls = '') => h('div', { class: `tile ${cls}` }, h('span', null, label), h('b', null, value));
   const card = (tab: NightTab, title: string, value: string, note: string, state: '' | 'warn' | 'todo' = '') =>
@@ -125,14 +132,19 @@ function reportTab(s: GameState): HTMLElement {
       h('div', { class: 'report-side' },
         debtMeter(s),
         h('p', { class: 'small' }, nextDueText(s)),
+        h('div', { class: 'balance-line', title: '現金＋貸付＋在庫（業者評価）−借金・借入' },
+          h('span', null, '純資産 ', h('b', { class: bs.net < 0 ? 'neg' : '' }, yen(bs.net))),
+          h('small', { class: 'muted' }, `現金 ${yen(bs.cash)}＋貸付 ${yen(bs.loans)}＋在庫 ${yen(bs.stock)}−借金・借入 ${yen(bs.debt + bs.bank)}`),
+        ),
         historyChart(s, { table: false }),
       ),
       h('div', { class: 'dash-cards' },
         card('books', '支払い後の所持金', yen(after), `家族：${familyText(s)}`, after < 0 ? 'warn' : familyBad ? 'todo' : ''),
         card('stock', '在庫', `${s.inventory.length} 点`, `陳列 ${shelved} / ${shelfSlots(s)} 枠・未陳列 ${unshelved}`, unshelved && shelved < shelfSlots(s) ? 'todo' : ''),
+        card('trade', '仕入れ・広告', lots.length ? `業者の品 ${lots.length} 点` : '業者の品なし', `明日の広告：${AD_NAME[s.adNext?.id ?? 'none']}`),
         card('loans', '質札', `${active.length} 件`, `明日までに満期 ${dueTomorrow} 件`, dueTomorrow ? 'todo' : ''),
         card('debt', '借金', yen(s.debt), `利率 ${Math.round(s.rate * 100)}%`, shortOfInstallment(s) ? 'warn' : CONFIG.installments[s.day] ? 'todo' : ''),
-        card('shop', '投資', buyable ? `${buyable} 件 購入可` : 'なし', `所持金 ${yen(s.money)}`, buyable ? 'todo' : ''),
+        card('shop', '投資・店員', buyable ? `${buyable} 件 購入可` : 'なし', s.clerk ? '店員あり' : '店員なし', buyable ? 'todo' : ''),
       ),
     ),
   );
@@ -165,7 +177,7 @@ function booksTab(s: GameState): HTMLElement {
           e.mandatory ? h('small', { class: 'muted' }, '（必須）') : null,
         ),
         h('b', null, yen(e.amount)),
-      ))),
+      )), adCost(s) ? h('li', null, h('span', null, `明日の広告費（${AD_NAME[s.adNext!.id]}）`), h('b', null, yen(adCost(s)))) : null),
       h('div', { class: 'receipt' },
         h('div', null, h('span', null, '所持金'), h('b', null, yen(s.money))),
         h('div', null, h('span', null, '支払い'), h('b', null, `− ${yen(committed)}`)),
@@ -191,7 +203,7 @@ function stockSlot(inv: InventoryItem, selected: boolean): HTMLElement {
   },
   categoryIcon(def.category, 3),
   h('span', { class: 'slot-name' }, def.name),
-  h('span', { class: 'slot-tag' }, inv.shelved ? `陳列 ${yen(inv.price)}` : inv.source === 'forfeit' ? '質流れ' : inv.source === 'story' ? '祖父の金庫' : '買取'),
+  h('span', { class: 'slot-tag' }, inv.shelved ? `陳列 ${yen(inv.price)}` : SOURCE_LABEL[inv.source]),
   );
 }
 
@@ -215,7 +227,7 @@ function stockDetail(s: GameState, inv: InventoryItem): HTMLElement {
       categoryIcon(def.category, 4),
       h('div', null,
         h('b', null, def.name),
-        h('small', null, `${inv.source === 'forfeit' ? '質流れ' : inv.source === 'story' ? '祖父の金庫' : '買取'}・${age === 0 ? '今日' : `${age} 日前`}に入荷`),
+        h('small', null, `${SOURCE_LABEL[inv.source]}・${age === 0 ? '今日' : `${age} 日前`}に入荷`),
       ),
     ),
     h('table', { class: 'stock-facts' },
@@ -288,6 +300,82 @@ function stockTab(s: GameState): HTMLElement {
   );
 }
 
+const AD_NAME: Record<AdPlan['id'], string> = { none: '出さない', flyer: '町内チラシ', buy: '高価買取チラシ', sale: '店頭セール' };
+
+function lotCard(s: GameState, lot: DealerLot): HTMLElement {
+  const def = itemDef(lot.item.defId);
+  const known = knownHiddenDefects(s, lot.item);
+  const notes = [...lot.item.defects, ...known].map((d) => DEFECT_LABEL[d]);
+  // 道具が無いと調べきれない品には但し書きがつく
+  const unchecked = def.electric && !s.tools.includes('tester');
+  const resale = suggested(s, { item: { ...lot.item, hiddenDefects: known } } as InventoryItem);
+  const m = s.market[def.category];
+  return h('li', { class: 'lot' },
+    categoryIcon(def.category, 3),
+    h('div', { class: 'lot-text' },
+      h('b', null, def.name),
+      h('small', null, `${CONDITION_LABEL[lot.item.condition]}・相場 ${TREND(m)}${Math.round(m * 100)}%`),
+      h('small', { class: notes.length ? 'neg' : '' }, notes.length ? notes.join('・') : '目立つ欠陥なし', unchecked ? '（動作未確認）' : ''),
+    ),
+    h('div', { class: 'lot-price' },
+      h('span', null, '卸値 ', h('b', null, yen(lot.price))),
+      h('small', null, `店頭の目安 〜${yen(resale)}`),
+      h('button', { class: 'btn small primary', disabled: s.money < lot.price, onclick: () => act({ type: 'BUY_LOT', itemId: lot.item.id }) }, '仕入れる'),
+    ),
+  );
+}
+
+function adOption(s: GameState, ad: AdPlan, price: number, desc: string): HTMLElement {
+  const on = (s.adNext?.id ?? 'none') === ad.id;
+  return h('li', { class: on ? 'on' : '' },
+    h('label', null,
+      h('input', { type: 'radio', name: 'ad', checked: on, onchange: () => act({ type: 'SET_AD', ad }) }),
+      h('span', null, h('b', null, AD_NAME[ad.id]), price ? h('span', { class: 'muted small' }, ` ${yen(price)}`) : null, desc ? h('small', null, desc) : null),
+    ),
+  );
+}
+
+function tradeTab(s: GameState): HTMLElement {
+  const lots = s.dealerLots ?? [];
+  return h('div', { class: 'nt-split' },
+    h('div', { class: 'nt-col' },
+      head('業者の仕入れ', h('small', { class: 'muted' }, `所持金 ${yen(s.money)}`)),
+      lots.length
+        ? h('ul', { class: 'lots' }, ...lots.map((lot) => lotCard(s, lot)))
+        : h('p', { class: 'muted' }, s.day >= CONFIG.totalDays ? '最終日は業者も来ない。' : '今夜の品はもう無い。'),
+      h('p', { class: 'muted small' }, '店頭で売れれば差額が儲けになるが、陳列枠と現金を食う。テスターや UV ライトが無いと、動作不良・修理痕を見落としたまま仕入れることがある。'),
+    ),
+    h('div', { class: 'nt-col' },
+      head('明日の広告'),
+      h('ul', { class: 'ads' },
+        adOption(s, { id: 'none' }, 0, ''),
+        adOption(s, { id: 'flyer' }, CONFIG.adFlyer.price, `来客 +${CONFIG.adFlyer.customers}。`),
+        adOption(s, { id: 'buy', category: adCategory }, CONFIG.adBuy.price, `来客 +${CONFIG.adBuy.customers}。持ち込みの約半分が選んだ品目になる。`),
+        adOption(s, { id: 'sale' }, CONFIG.adSale.price, '今夜陳列した品が売れやすくなる。'),
+      ),
+      h('div', { class: 'offer-row' },
+        h('span', { class: 'small' }, '買取強化の品目'),
+        h('select', {
+          class: 'ad-select', 'aria-label': '高価買取チラシの品目',
+          onchange: (e: Event) => {
+            adCategory = (e.target as HTMLSelectElement).value as Category;
+            if (s.adNext?.id === 'buy') act({ type: 'SET_AD', ad: { id: 'buy', category: adCategory } });
+          },
+        }, ...CATEGORIES.filter((c) => c !== 'blade').map((c) => {
+          const o = h('option', { value: c }, `${CATEGORY_LABEL[c]} ${TREND(s.market[c])}${Math.round(s.market[c] * 100)}%`);
+          o.selected = c === (s.adNext?.category ?? adCategory);
+          return o;
+        })),
+      ),
+      h('p', { class: 'muted small' }, adCost(s) ? `広告費 ${yen(adCost(s))} は眠る前に支払う。` : '相場の上がっている品目を集めれば、高く売れる在庫が増える。'),
+    ),
+  );
+}
+
+function redeemOutlook(p: number): string {
+  return p >= 0.6 ? '高' : p >= 0.35 ? '中' : '低';
+}
+
 function loansTab(s: GameState): HTMLElement {
   const active = s.loans.filter((l) => l.status === 'active').sort((a, b) => a.dueDay - b.dueDay);
   const total = active.reduce((a, l) => a + l.principal, 0);
@@ -302,7 +390,7 @@ function loansTab(s: GameState): HTMLElement {
     ),
     active.length
       ? h('table', { class: 'loans' },
-        h('tr', null, h('th', null, 'No.'), h('th', null, '名義'), h('th', null, '品物'), h('th', null, '元金'), h('th', null, '利息'), h('th', null, '期限')),
+        h('tr', null, h('th', null, 'No.'), h('th', null, '名義'), h('th', null, '品物'), h('th', null, '元金'), h('th', { class: 'col-int' }, '利息'), h('th', null, '期限'), h('th', { title: '請け出しに来る見込み' }, '見込')),
         ...rows.map((l) => {
           const left = l.dueDay - s.day;
           return h('tr', { class: left <= 1 ? 'due' : '' },
@@ -310,17 +398,21 @@ function loansTab(s: GameState): HTMLElement {
             h('td', null, l.customer.person.name),
             h('td', null, h('span', { class: 'inv-name' }, categoryIcon(itemDef(l.item.defId).category), itemDef(l.item.defId).name)),
             h('td', null, yen(l.principal)),
-            h('td', null, yen(interestOf(l))),
-            h('td', null, `${l.dueDay} 日目`, h('span', { class: `tag ${left <= 1 ? 'bad' : ''}` }, left <= 0 ? '今日' : left === 1 ? '明日' : `あと ${left} 日`)),
+            h('td', { class: 'col-int' }, yen(interestOf(l))),
+            h('td', null, h('span', { class: 'due-day' }, `${l.dueDay} 日目`), h('span', { class: `tag ${left <= 1 ? 'bad' : ''}` }, left <= 0 ? '今日' : left === 1 ? '明日' : `あと ${left} 日`)),
+            h('td', null, l.redeemFlag ? '―' : redeemOutlook(redeemProbability(s, l))),
           );
         }),
       )
       : h('p', { class: 'muted' }, '預かっている質札はない。'),
+    h('p', { class: 'muted small' }, '見込みが低い質札は質流れになりやすい。流れた品は在庫になる。'),
   );
 }
 
 function debtTab(s: GameState): HTMLElement {
   let debtDraft = '';
+  let bankDraft = '';
+  const bank = s.bankLoan ?? 0;
   const spare = Math.max(0, s.money - committedExpenses(s));
   const input = h('input', {
     class: 'offer-input', type: 'text', inputmode: 'numeric', placeholder: '繰り上げ返済額', 'aria-label': '繰り上げ返済額',
@@ -332,7 +424,7 @@ function debtTab(s: GameState): HTMLElement {
   }, label);
   const rate = Math.round(s.rate * 100);
   const max = Math.round(maxRate(s) * 100);
-  return h('div', { class: 'nt-split' },
+  return h('div', { class: 'nt-split nt-debt' },
     h('div', { class: 'nt-col' },
       head('借金', h('span', { class: 'big-num' }, yen(s.debt))),
       debtMeter(s),
@@ -370,13 +462,22 @@ function debtTab(s: GameState): HTMLElement {
       ),
       h('p', { class: 'small' }, `${CONFIG.loanTermDays} 日あたり・上限 ${max}%`),
       h('p', { class: 'muted small' }, '利率が高いほど利息収入は増えるが、客は請け出しを諦めやすくなる。'),
+      head('信用金庫', h('span', { class: 'big-num' }, yen(bank))),
+      h('p', { class: 'small' }, `枠 ${yen(bankLimit(s))}・日利 ${CONFIG.bankDailyRate * 100}%${bank > 0 ? `・今夜の利息 ${yen(bankInterest(s))}` : ''}`),
+      h('div', { class: 'offer-row' },
+        h('span', { class: 'yen' }, '¥'),
+        h('input', { class: 'offer-input', type: 'text', inputmode: 'numeric', placeholder: '金額', 'aria-label': '借入・返済の金額', oninput: (e: Event) => { bankDraft = (e.target as HTMLInputElement).value; } }),
+        h('button', { class: 'btn', onclick: () => act({ type: 'BORROW', amount: digits(bankDraft) }) }, '借りる'),
+        h('button', { class: 'btn', disabled: bank <= 0, onclick: () => act({ type: 'REPAY_BANK', amount: digits(bankDraft) || bank }) }, '返す'),
+      ),
+      h('p', { class: 'muted small' }, `つなぎ資金。枠は評判で増える。${CONFIG.totalDays} 日目の夜に残っていれば先に取り立てられ、返せない分は借金に加わる。`),
     ),
   );
 }
 
 function shopTab(s: GameState): HTMLElement {
   return h('div', { class: 'nt-shop' },
-    head('投資', h('small', { class: 'muted' }, `所持金 ${yen(s.money)}`)),
+    head('投資・店員', h('small', { class: 'muted' }, `所持金 ${yen(s.money)}`)),
     h('div', { class: 'shop-grid' }, ...UPGRADES.map((u) => {
       const owned = s.upgrades.includes(u.id);
       const locked = s.day < u.availableDay;
@@ -389,7 +490,14 @@ function shopTab(s: GameState): HTMLElement {
             ? h('span', { class: 'muted small' }, `${u.availableDay} 日目から・${yen(u.price)}`)
             : h('button', { class: 'btn small primary', disabled: s.money < u.price, onclick: () => act({ type: 'BUY_UPGRADE', id: u.id }) }, `購入 ${yen(u.price)}`),
       );
-    })),
+    }),
+    h('div', { class: `shop-card ${s.clerk ? 'owned' : ''}` },
+      h('b', null, s.clerk ? '店員（雇用中）' : '店員', h('span', { class: 'tag' }, '人')),
+      h('p', null, `日給 ${yen(CONFIG.clerkWage)}。満期の請け出し・利払いを開店前に代わりに応対する。偽の名義人を見逃すことがある。`),
+      s.clerk
+        ? h('button', { class: 'btn small', onclick: () => act({ type: 'FIRE_CLERK' }) }, '暇を出す')
+        : h('button', { class: 'btn small primary', onclick: () => act({ type: 'HIRE_CLERK' }) }, '雇う'),
+    )),
   );
 }
 
@@ -409,6 +517,13 @@ const TABS: { id: NightTab; seal: string; label: string; badge: (s: GameState) =
     },
   },
   {
+    id: 'trade', seal: '商', label: '仕入れ・広告',
+    badge: (s) => {
+      const n = (s.dealerLots ?? []).filter((l) => s.money >= l.price).length;
+      return n ? { text: String(n) } : null;
+    },
+  },
+  {
     id: 'loans', seal: '札', label: '質札',
     badge: (s) => {
       const n = s.loans.filter((l) => l.status === 'active' && l.dueDay <= s.day + 1).length;
@@ -420,7 +535,7 @@ const TABS: { id: NightTab; seal: string; label: string; badge: (s: GameState) =
     badge: (s) => (CONFIG.installments[s.day] ? { text: '今夜', warn: true } : null),
   },
   {
-    id: 'shop', seal: '投', label: '投資',
+    id: 'shop', seal: '投', label: '投資・店員',
     badge: (s) => {
       const n = UPGRADES.filter((u) => !s.upgrades.includes(u.id) && s.day >= u.availableDay && s.money >= u.price).length;
       return n ? { text: String(n) } : null;
@@ -434,6 +549,8 @@ function tabBody(s: GameState): HTMLElement {
       return booksTab(s);
     case 'stock':
       return stockTab(s);
+    case 'trade':
+      return tradeTab(s);
     case 'loans':
       return loansTab(s);
     case 'debt':

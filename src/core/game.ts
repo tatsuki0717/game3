@@ -9,11 +9,13 @@ import { CHARACTERS, LETTERS, STORY_VISITS, type StoryVisit } from './data/story
 import { Rng, hashSeed } from './rng';
 import { applyTool, compare } from './systems/appraisal';
 import { hadLegalReason, personKey, violations } from './systems/compliance';
-import { findLoan, interestOf, processDueLoans, simulateShopSales, updateMarket, wholesalePrice } from './systems/economy';
+import {
+  adCost, bankInterest, bankLimit, findLoan, interestOf, makeDealerLots, processDueLoans, simulateShopSales, updateMarket, wholesalePrice,
+} from './systems/economy';
 import { makeDoc, makeItem, newId, perceivedValue, randomCustomer, randomPerson, repeatCustomer, roundPrice, trueValue } from './systems/generate';
 import { pointOut, respondToOffer } from './systems/negotiation';
 import type {
-  Category, Customer, DayLog, Effects, EndingId, Expense, GameState, Session, ToolId,
+  AdPlan, Category, Customer, DayLog, Effects, EndingId, Expense, GameState, Loan, Session, ToolId,
 } from './types';
 
 export type Action =
@@ -37,6 +39,12 @@ export type Action =
   | { type: 'WHOLESALE'; itemId: string }
   | { type: 'BUY_UPGRADE'; id: string }
   | { type: 'SET_RATE'; rate: number }
+  | { type: 'BUY_LOT'; itemId: string }
+  | { type: 'SET_AD'; ad: AdPlan }
+  | { type: 'HIRE_CLERK' }
+  | { type: 'FIRE_CLERK' }
+  | { type: 'BORROW'; amount: number }
+  | { type: 'REPAY_BANK'; amount: number }
   | { type: 'END_NIGHT' };
 
 export interface Result {
@@ -85,6 +93,9 @@ export function newGame(seed: number): GameState {
     overdraft: 0,
     history: [],
     todayLog: emptyLog(),
+    dealerLots: [],
+    clerk: false,
+    bankLoan: 0,
   };
   startDay(state);
   return state;
@@ -149,7 +160,7 @@ function apply(s: GameState, rng: Rng, a: Action): Inner {
       s.session = null;
       return {};
     case 'CLOSE_SHOP':
-      return closeShop(s);
+      return closeShop(s, rng);
     case 'TOGGLE_EXPENSE': {
       const e = s.expenses.find((x) => x.id === a.id);
       if (!e || e.mandatory) return fail('この支払いは外せない。');
@@ -204,6 +215,52 @@ function apply(s: GameState, rng: Rng, a: Action): Inner {
       const max = maxRate(s);
       s.rate = Math.round(Math.min(max, Math.max(0.03, a.rate)) * 100) / 100;
       return {};
+    }
+    case 'BUY_LOT': {
+      if (s.phase !== 'night') return fail('仕入れは夜に行う。');
+      const lot = s.dealerLots?.find((l) => l.item.id === a.itemId);
+      if (!lot) return fail('その品物はもう無い。');
+      if (s.money < lot.price) return fail('お金が足りない。');
+      s.money -= lot.price;
+      s.dealerLots = s.dealerLots!.filter((l) => l !== lot);
+      s.inventory.push({ item: lot.item, acquiredDay: s.day, cost: lot.price, shelved: false, price: 0, source: 'dealer' });
+      s.ledger.push({ label: `仕入れ：${itemDef(lot.item.defId).name}`, amount: -lot.price });
+      return { message: `${itemDef(lot.item.defId).name}を ${yen(lot.price)} で仕入れた。` };
+    }
+    case 'SET_AD': {
+      if (s.phase !== 'night') return fail('広告は夜に手配する。');
+      if (a.ad.id === 'buy' && (!a.ad.category || a.ad.category === 'blade')) return fail('買取を強化する品目を選んでほしい。');
+      s.adNext = a.ad.id === 'none' ? undefined : { id: a.ad.id, category: a.ad.id === 'buy' ? a.ad.category : undefined };
+      return {};
+    }
+    case 'HIRE_CLERK':
+      if (s.phase !== 'night') return fail('人を雇うのは夜に決める。');
+      if (s.clerk) return fail('もう店員がいる。');
+      s.clerk = true;
+      return { message: `店員を雇った。明日から質札の用件（請け出し・利払い）を任せられる。日給 ${yen(CONFIG.clerkWage)}。` };
+    case 'FIRE_CLERK':
+      if (!s.clerk) return fail('店員はいない。');
+      s.clerk = false;
+      return { message: '店員に暇を出した。' };
+    case 'BORROW': {
+      if (s.phase !== 'night') return fail('融資の相談は夜に行う。');
+      const room = bankLimit(s) - (s.bankLoan ?? 0);
+      const amount = Math.floor(Math.min(a.amount, room) / 1000) * 1000;
+      if (room < 1000) return fail('これ以上は貸せないと言われた。');
+      if (amount <= 0) return fail('借りる額を入力してほしい。');
+      s.money += amount;
+      s.bankLoan = (s.bankLoan ?? 0) + amount;
+      s.ledger.push({ label: '信用金庫から借入', amount });
+      return { message: `信用金庫から ${yen(amount)} を借りた。日利 ${CONFIG.bankDailyRate * 100}%。` };
+    }
+    case 'REPAY_BANK': {
+      if (s.phase !== 'night') return fail('返済は夜に行う。');
+      const amount = Math.floor(Math.min(a.amount, s.bankLoan ?? 0, s.money - committedExpenses(s)));
+      if (amount <= 0) return fail((s.bankLoan ?? 0) > 0 ? '返済に回せるお金がない。' : '信用金庫への借入はない。');
+      s.money -= amount;
+      s.bankLoan = (s.bankLoan ?? 0) - amount;
+      s.ledger.push({ label: '信用金庫へ返済', amount: -amount });
+      return { message: `信用金庫に ${yen(amount)} を返した。` };
     }
     case 'END_NIGHT':
       return endNight(s, rng);
@@ -264,6 +321,9 @@ export function startDay(s: GameState): void {
   s.todayVisitors = [];
   s.ledger = [];
   s.session = null;
+  s.dealerLots = [];
+  s.adToday = s.adNext;
+  s.adNext = undefined;
   const rng = new Rng(hashSeed(s.seed, 'day', s.day, s.rngState));
   const notes: string[] = [...s.carryNotes];
   s.carryNotes = [];
@@ -322,6 +382,7 @@ export function startDay(s: GameState): void {
   // 満期の質札
   const due = processDueLoans(s, rng);
   notes.push(...due.notes);
+  if (s.clerk) due.visitors = clerkHandles(s, rng, due.visitors, notes);
 
   // 朝の手紙
   for (const l of LETTERS) {
@@ -388,8 +449,14 @@ function buildQueue(s: GameState, rng: Rng, loanVisitors: Customer[]): Customer[
   let n = d.customers + (s.upgrades.includes('sign') ? 2 : 0);
   if (s.reputation >= 70) n += 1;
   if (s.reputation < 30) n -= 2;
+  const ad = s.adToday;
+  if (ad?.id === 'flyer') n += CONFIG.adFlyer.customers;
+  if (ad?.id === 'buy') n += CONFIG.adBuy.customers;
   const queue: Customer[] = [];
-  for (let i = 0; i < n; i++) queue.push(randomCustomer(s, rng, d));
+  for (let i = 0; i < n; i++) {
+    const focus = ad?.id === 'buy' && rng.chance(CONFIG.adBuy.share) ? ad.category : undefined;
+    queue.push(randomCustomer(s, rng, d, focus));
+  }
 
   // 盗品はすべて手配書に載せる（＋無関係の手配も混ぜる）
   for (const c of queue) {
@@ -594,6 +661,16 @@ function acceptRequest(s: GameState): Inner {
   ses.closed = true;
   ses.outcome = 'deal';
   logOutcome(s, 'deals');
+  ses.chat.push({ who: 'system', text: settleTicket(s, loan, c) });
+  ses.chat.push({ who: 'customer', text: 'ありがとうございました。' });
+  for (const rule of violations(s, c.intent, 0, c)) {
+    s.pendingViolations.push({ ruleId: rule.id, day: s.day, customerName: c.person.name, detectChance: rule.detectChance });
+  }
+  return {};
+}
+
+/** 請け出し・利払いの精算。結果の説明文を返す */
+function settleTicket(s: GameState, loan: Loan, c: Customer): string {
   const name = itemDef(loan.item.defId).name;
   const interest = interestOf(loan);
   if (c.intent === 'redeem') {
@@ -602,7 +679,6 @@ function acceptRequest(s: GameState): Inner {
     s.money += loan.principal + interest;
     s.ledger.push({ label: `請け出し：${name}（元金）`, amount: loan.principal });
     s.ledger.push({ label: `請け出し：${name}（利息）`, amount: interest });
-    ses.chat.push({ who: 'system', text: `${name}を返却し、${yen(loan.principal + interest)} を受け取った。` });
     if (c.impostor) {
       s.scheduled.push({
         day: s.day + 1,
@@ -612,19 +688,33 @@ function acceptRequest(s: GameState): Inner {
     } else if (loan.customer.storyId === 'sanae') {
       s.reputation = clamp(s.reputation + 3, 0, 100);
     }
-  } else {
-    loan.dueDay = s.day + CONFIG.loanTermDays;
-    loan.extensions += 1;
-    loan.pendingVisit = undefined;
-    s.money += interest;
-    s.ledger.push({ label: `利息：${name}`, amount: interest });
-    ses.chat.push({ who: 'system', text: `利息 ${yen(interest)} を受け取り、期限を ${CONFIG.loanTermDays} 日延長した。` });
+    return `${name}を返却し、${yen(loan.principal + interest)} を受け取った。`;
   }
-  ses.chat.push({ who: 'customer', text: 'ありがとうございました。' });
-  for (const rule of violations(s, c.intent, 0, c)) {
-    s.pendingViolations.push({ ruleId: rule.id, day: s.day, customerName: c.person.name, detectChance: rule.detectChance });
+  loan.dueDay = s.day + CONFIG.loanTermDays;
+  loan.extensions += 1;
+  loan.pendingVisit = undefined;
+  s.money += interest;
+  s.ledger.push({ label: `利息：${name}`, amount: interest });
+  return `利息 ${yen(interest)} を受け取り、期限を ${CONFIG.loanTermDays} 日延長した。`;
+}
+
+/** 店員が開店前に質札の客を応対する。ストーリー客は店主が自分で会う。窓口に回す客を返す */
+function clerkHandles(s: GameState, rng: Rng, visitors: Customer[], notes: string[]): Customer[] {
+  const rest: Customer[] = [];
+  for (const c of visitors) {
+    const loan = c.ticket && findLoan(s, c.ticket.ticketNo);
+    if (!loan || c.storyId) {
+      rest.push(c);
+      continue;
+    }
+    if (c.impostor && !rng.chance(CONFIG.clerkMissImpostor)) {
+      loan.dueDay = s.day + 1;
+      notes.push(`店員：質札 No.${loan.ticketNo} を持ってきた客が名義人と別人だったので、お引き取り願いました。`);
+      continue;
+    }
+    notes.push(`店員：質札 No.${loan.ticketNo}（${c.person.name}様）— ${settleTicket(s, loan, c)}`);
   }
-  return {};
+  return rest;
 }
 
 function refuse(s: GameState, rng: Rng): Inner {
@@ -694,7 +784,7 @@ function choose(s: GameState, index: number): Inner {
 
 // ---------------------------------------------------------------- 閉店・夜
 
-function closeShop(s: GameState): Inner {
+function closeShop(s: GameState, rng: Rng): Inner {
   if (s.phase !== 'counter') return fail('開店していない。');
   if (s.session && !s.session.closed) return fail('応対中の客がいる。');
   s.session = null;
@@ -712,6 +802,7 @@ function closeShop(s: GameState): Inner {
   s.queue = [];
   s.phase = 'night';
   s.expenses = buildExpenses(s);
+  s.dealerLots = s.day < CONFIG.totalDays ? makeDealerLots(s, rng) : [];
   return {};
 }
 
@@ -724,6 +815,7 @@ function buildExpenses(s: GameState): Expense[] {
     list.push({ id: 'heating', label: '暖房費', amount: s.upgrades.includes('heater') ? Math.round(CONFIG.heating / 2) : CONFIG.heating, pay: true, mandatory: false });
   }
   if (s.family.sick) list.push({ id: 'medicine', label: '祖母の薬代', amount: CONFIG.medicine, pay: true, mandatory: false });
+  if (s.clerk) list.push({ id: 'wage', label: '店員の日給', amount: CONFIG.clerkWage, pay: true, mandatory: true });
   const inst = CONFIG.installments[s.day];
   if (inst) {
     list.push({ id: 'installment', label: '借金の定期返済', amount: Math.min(inst, s.debt), pay: true, mandatory: true });
@@ -732,7 +824,7 @@ function buildExpenses(s: GameState): Expense[] {
 }
 
 export function committedExpenses(s: GameState): number {
-  return s.expenses.filter((e) => e.pay).reduce((sum, e) => sum + e.amount, 0);
+  return s.expenses.filter((e) => e.pay).reduce((sum, e) => sum + e.amount, 0) + adCost(s);
 }
 
 function endNight(s: GameState, rng: Rng): Inner {
@@ -748,6 +840,16 @@ function endNight(s: GameState, rng: Rng): Inner {
     s.money -= e.amount;
     s.ledger.push({ label: e.label, amount: -e.amount });
     if (e.id === 'installment') s.debt -= e.amount;
+  }
+  const ad = adCost(s);
+  if (ad > 0) {
+    s.money -= ad;
+    s.ledger.push({ label: '広告費', amount: -ad });
+  }
+  if ((s.bankLoan ?? 0) > 0) {
+    const interest = bankInterest(s);
+    s.bankLoan! += interest;
+    notes.push(`信用金庫の借入に利息 ${yen(interest)} がついた（残高 ${yen(s.bankLoan!)}）。`);
   }
 
   // 家族
@@ -808,6 +910,14 @@ function endNight(s: GameState, rng: Rng): Inner {
   } else s.overdraft = 0;
 
   if (s.day >= CONFIG.totalDays) {
+    // 信用金庫への借入は先に返し、返しきれない分は借金に加わる
+    const bank = s.bankLoan ?? 0;
+    if (bank > 0) {
+      const pay = Math.max(0, Math.min(s.money, bank));
+      s.money -= pay;
+      s.debt += bank - pay;
+      s.bankLoan = 0;
+    }
     if (s.debt > 0 && s.money > 0) {
       const pay = Math.min(s.money, s.debt);
       s.money -= pay;

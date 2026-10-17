@@ -2,12 +2,12 @@
 
 import { CONDITION_FACTOR, CONFIG, DEFECT_FACTOR } from '../config';
 import { dateOfDay } from '../dates';
-import { CATEGORIES, itemDef } from '../data/items';
+import { CATEGORIES, ITEMS, itemDef } from '../data/items';
 import { greetingsFor } from '../data/people';
 import { NEWS, difficulty } from '../data/schedule';
 import type { Rng } from '../rng';
-import type { Customer, GameState, InventoryItem, Loan, Personality } from '../types';
-import { makeDoc, newId, perceivedValue, randomPerson, trueValue } from './generate';
+import type { Customer, DealerLot, DefectId, GameState, InventoryItem, ItemInstance, Loan, Personality } from '../types';
+import { makeDoc, makeItem, newId, perceivedValue, randomPerson, roundPrice, trueValue } from './generate';
 
 const REDEEM_BASE: Record<Personality, number> = { regular: 0.65, timid: 0.55, desperate: 0.4, aggressive: 0.45, liar: 0.2 };
 
@@ -108,10 +108,11 @@ export function shopperValue(state: GameState, inv: InventoryItem): number {
   return v;
 }
 
-export function saleProbability(state: GameState, inv: InventoryItem): number {
+export function saleProbability(state: GameState, inv: InventoryItem, ad = state.adToday): number {
   const ratio = inv.price / Math.max(1, shopperValue(state, inv));
   const base = Math.min(0.9, Math.max(0.03, 1.3 - ratio));
-  return base * (0.8 + state.reputation / 250);
+  const boost = ad?.id === 'sale' ? CONFIG.adSale.boost : 1;
+  return Math.min(0.95, base * (0.8 + state.reputation / 250) * boost);
 }
 
 export interface SaleResult {
@@ -152,4 +153,64 @@ export function updateMarket(state: GameState, rng: Rng): string[] {
 
 export function wholesalePrice(state: GameState, inv: InventoryItem): number {
   return Math.round((trueValue(state, inv.item) * CONFIG.wholesaleRate) / 100) * 100;
+}
+
+// ---------------------------------------------------------------- 仕入れ・広告・融資
+
+/** 持っている道具で分かる隠れた欠陥（業者の品は道具を持っていれば検品済みとして扱う） */
+export function knownHiddenDefects(state: GameState, item: ItemInstance): DefectId[] {
+  return item.hiddenDefects.filter((d) => (d === 'broken' && state.tools.includes('tester')) || (d === 'repaired' && state.tools.includes('uv')));
+}
+
+/** 店主から見た品物の価値（見えていない欠陥は無いものとして見積もる） */
+export function apparentValue(state: GameState, item: ItemInstance): number {
+  return trueValue(state, { ...item, hiddenDefects: knownHiddenDefects(state, item) });
+}
+
+/** 業者が持ってくる仕入れ品。本物だが、道具が無いと分からない欠陥が混じっていることがある */
+export function makeDealerLots(state: GameState, rng: Rng): DealerLot[] {
+  const n = CONFIG.dealerLots + (state.reputation >= 70 ? 1 : 0);
+  const pool = ITEMS.filter((i) => i.category !== 'blade');
+  const lots: DealerLot[] = [];
+  for (let i = 0; i < n; i++) {
+    // 相場が上がっているカテゴリの品ほど回ってきにくい（業者も高く売りたい）
+    const def = rng.weighted(pool, (d) => 1 / Math.pow(d.basePrice / 10_000, 0.3) / (state.market[d.category] ?? 1));
+    const item = makeItem(state, rng, def.id);
+    item.sentimental = 0;
+    const [lo, hi] = CONFIG.dealerPrice;
+    const value = apparentValue(state, item);
+    // 仕入れてすぐ業者に売り戻して儲からないよう、卸値は業者売却額より必ず高くする
+    const floor = Math.ceil((value * CONFIG.wholesaleRate) / 100) * 100 + 500;
+    lots.push({ item, price: Math.max(floor, roundPrice(value * rng.range(lo, hi))) });
+  }
+  return lots;
+}
+
+export function bankLimit(state: GameState): number {
+  return CONFIG.bankBase + state.reputation * CONFIG.bankPerReputation;
+}
+
+export function bankInterest(state: GameState): number {
+  return Math.round(((state.bankLoan ?? 0) * CONFIG.bankDailyRate) / 100) * 100;
+}
+
+export function adCost(state: GameState): number {
+  switch (state.adNext?.id) {
+    case 'flyer':
+      return CONFIG.adFlyer.price;
+    case 'buy':
+      return CONFIG.adBuy.price;
+    case 'sale':
+      return CONFIG.adSale.price;
+    default:
+      return 0;
+  }
+}
+
+/** 純資産の内訳（貸付は元金、在庫は業者売却額で評価する） */
+export function balanceSheet(state: GameState): { cash: number; loans: number; stock: number; debt: number; bank: number; net: number } {
+  const loans = state.loans.filter((l) => l.status === 'active').reduce((a, l) => a + l.principal, 0);
+  const stock = state.inventory.reduce((a, i) => a + wholesalePrice(state, i), 0);
+  const bank = state.bankLoan ?? 0;
+  return { cash: state.money, loans, stock, debt: state.debt, bank, net: state.money + loans + stock - state.debt - bank };
 }

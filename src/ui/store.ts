@@ -31,7 +31,7 @@ export interface UiState {
   reportFor: string | null;
 }
 
-export type NightTab = 'report' | 'books' | 'stock' | 'loans' | 'debt' | 'shop';
+export type NightTab = 'report' | 'books' | 'stock' | 'trade' | 'loans' | 'debt' | 'shop';
 
 export const ui: UiState = {
   screen: 'title',
@@ -91,7 +91,7 @@ export function act(action: Action, opts: { silent?: boolean } = {}): boolean {
   const failed = r.state === prev && !!r.message;
   if (!opts.silent) feedback(action, prev, r.state, failed);
   if (failed && r.message) toast(r.message);
-  else if (r.message && (action.type === 'WHOLESALE' || action.type === 'BUY_UPGRADE' || action.type === 'PAY_DEBT')) toast(r.message);
+  else if (r.message && ['WHOLESALE', 'BUY_UPGRADE', 'PAY_DEBT', 'BUY_LOT', 'HIRE_CLERK', 'FIRE_CLERK', 'BORROW', 'REPAY_BANK'].includes(action.type)) toast(r.message);
   if (!opts.silent || failed) {
     save();
     notify();

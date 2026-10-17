@@ -92,6 +92,8 @@ export function morningScreen(s: GameState): HTMLElement {
             h('li', null, `満期を迎える質札：${due} 件`),
             h('li', null, `盗品手配書：${s.stolenList.length} 件`),
             h('li', null, `有効な規則：${activeRules(s.day).length} 条`),
+            s.adToday ? h('li', null, `広告：${s.adToday.id === 'flyer' ? '町内チラシ（来客増）' : s.adToday.id === 'buy' ? `${CATEGORY_LABEL[s.adToday.category!]}の高価買取チラシ` : '店頭セール'}`) : null,
+            s.clerk ? h('li', null, '店員が質札の用件を応対中') : null,
             nextInstallment ? h('li', null, `次の定期返済：${nextInstallment[0]} 日目の夜 ${yen(Math.min(nextInstallment[1], s.debt))}`) : h('li', null, `最終返済：${CONFIG.totalDays} 日目の夜に残額 ${yen(s.debt)}`),
           ),
           h('h4', null, '相場'),

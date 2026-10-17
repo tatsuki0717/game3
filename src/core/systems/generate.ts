@@ -9,7 +9,7 @@ import {
 import { difficulty, type Difficulty } from '../data/schedule';
 import type { Rng } from '../rng';
 import type {
-  Condition, Customer, DefectId, FaceParts, GameState, IdDoc, Intent, ItemInstance, Person, Personality,
+  Category, Condition, Customer, DefectId, FaceParts, GameState, IdDoc, Intent, ItemInstance, Person, Personality,
 } from '../types';
 
 export function newId(state: GameState, prefix: string): string {
@@ -179,21 +179,22 @@ function pickPersonality(rng: Rng, fake: boolean): Personality {
   );
 }
 
-function pickItemDef(rng: Rng, d: Difficulty, blade: boolean): string {
-  const pool = ITEMS.filter((i) => (blade ? i.category === 'blade' : i.category !== 'blade'));
+function pickItemDef(rng: Rng, d: Difficulty, blade: boolean, focus?: Category): string {
+  let pool = ITEMS.filter((i) => (blade ? i.category === 'blade' : i.category !== 'blade'));
+  if (focus && !blade) pool = pool.filter((i) => i.category === focus);
   // 高額品ほど出にくい
   return rng.weighted(pool, (i) => 1 / Math.pow(i.basePrice / 10_000, 0.35) + (d.customers > 9 ? 0.05 : 0)).id;
 }
 
 /** ランダムな新規客（質入れ / 買取） */
-export function randomCustomer(state: GameState, rng: Rng, d: Difficulty): Customer {
+export function randomCustomer(state: GameState, rng: Rng, d: Difficulty, focus?: Category): Customer {
   const today = dateOfDay(state.day);
   const minor = rng.chance(d.minor);
   const outsider = rng.chance(d.outsider);
   const person = randomPerson(rng, today, { minor, outsider });
   const fakeRoll = rng.next();
   const blade = rng.chance(d.blade);
-  const defId = pickItemDef(rng, d, blade);
+  const defId = pickItemDef(rng, d, blade, focus);
   const def = itemDef(defId);
   const fake = fakeRoll < d.fake * (def.fakeRate / 0.25);
   const stolen = !fake && rng.chance(d.stolen);

@@ -38,6 +38,24 @@ export const CONFIG = {
   heatingFromDay: 10,
   medicine: 8_000,
   hospital: 50_000,
+
+  /** 業者の仕入れ品：1 晩の点数と、見えている価値に対する卸値の範囲（業者売却 65% より必ず高い） */
+  dealerLots: 3,
+  dealerPrice: [0.68, 0.85] as [number, number],
+
+  /** 広告（翌日に効く） */
+  adFlyer: { price: 6_000, customers: 3 },
+  adBuy: { price: 8_000, customers: 2, share: 0.5 },
+  adSale: { price: 5_000, boost: 1.35 },
+
+  /** 店員：日給。質札の用件（請け出し・利払い）を代わりに応対する。偽の名義人を見逃す率 */
+  clerkWage: 4_000,
+  clerkMissImpostor: 0.4,
+
+  /** 信用金庫の融資：上限（基本＋評判 1 あたり）と日利 */
+  bankBase: 50_000,
+  bankPerReputation: 3_000,
+  bankDailyRate: 0.01,
 } as const;
 
 export const CONDITION_FACTOR: Record<string, number> = {

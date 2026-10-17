@@ -103,7 +103,7 @@ setInterval(() => {
 }, TICK_MS);
 
 // キーボード操作。ボタンに付けた data-key をクリックするだけにして、処理は画面側に一本化する。
-//   Enter / Space：次の客・次へ・開店など主ボタン　1〜6：道具（夜はタブ）　C：照合　Esc：選択解除　← →：夜のページ送り
+//   Enter / Space：次の客・次へ・開店など主ボタン　1〜6：道具（夜は 1〜7 でタブ）　C：照合　Esc：選択解除　← →：夜のページ送り
 function pressKey(key: string): boolean {
   const btn = document.querySelector<HTMLButtonElement>(`[data-key="${key}"]`);
   if (!btn || btn.disabled) return false;
@@ -124,7 +124,7 @@ window.addEventListener('keydown', (e) => {
   let handled = false;
   // フォーカス中のボタンやリンクはブラウザ自身が Enter / Space で押すので二重に押さない
   if (e.key === 'Enter' || e.key === ' ') handled = !target.closest('button, a, summary, [tabindex]') && pressKey('next');
-  else if (/^[1-6]$/.test(e.key)) handled = pressKey(`tool-${e.key}`) || pressKey(`tab-${e.key}`);
+  else if (/^[1-7]$/.test(e.key)) handled = pressKey(`tool-${e.key}`) || pressKey(`tab-${e.key}`);
   else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') handled = pressKey(e.key === 'ArrowLeft' ? 'page-prev' : 'page-next');
   else if (e.key === 'c' || e.key === 'C') handled = pressKey('compare');
   if (handled) e.preventDefault();

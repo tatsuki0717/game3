@@ -3,11 +3,11 @@ import { CONFIG } from '../src/core/config';
 import { ageOn, dateOfDay, toWareki } from '../src/core/dates';
 import { itemDef } from '../src/core/data/items';
 import { RULE_MAP } from '../src/core/data/rules';
-import { dispatch, newGame, type Action } from '../src/core/game';
+import { committedExpenses, dispatch, newGame, type Action } from '../src/core/game';
 import { Rng } from '../src/core/rng';
 import { applyTool, compare } from '../src/core/systems/appraisal';
 import { evalCond, type TxContext } from '../src/core/systems/compliance';
-import { interestOf, redeemProbability } from '../src/core/systems/economy';
+import { bankLimit, interestOf, redeemProbability } from '../src/core/systems/economy';
 import { makeDoc, makeItem, randomPerson } from '../src/core/systems/generate';
 import { respondToOffer } from '../src/core/systems/negotiation';
 import type { Customer, GameState, Session } from '../src/core/types';
@@ -219,6 +219,74 @@ describe('game flow', () => {
     s = run(s, { type: 'END_NIGHT' });
     expect(s.phase).toBe('ending');
     expect(s.ending).toBe('foreclosed');
+  });
+});
+
+describe('management', () => {
+  const night = (seed: number) => run(newGame(seed), { type: 'BEGIN_COUNTER' }, { type: 'CLOSE_SHOP' });
+
+  it('offers dealer lots at night that can be bought into stock', () => {
+    let s = night(21);
+    expect(s.dealerLots!.length).toBeGreaterThanOrEqual(CONFIG.dealerLots);
+    const lot = s.dealerLots![0];
+    const before = s.money;
+    s = run(s, { type: 'BUY_LOT', itemId: lot.item.id });
+    expect(s.money).toBe(before - lot.price);
+    expect(s.inventory.find((i) => i.item.id === lot.item.id)?.source).toBe('dealer');
+    expect(s.dealerLots!.some((l) => l.item.id === lot.item.id)).toBe(false);
+    s = run(s, { type: 'END_NIGHT' });
+    expect(s.dealerLots).toEqual([]);
+  });
+
+  it('charges the ad at night and brings more customers the next day', () => {
+    const plain = run(night(22), { type: 'END_NIGHT' });
+    let s = run(night(22), { type: 'SET_AD', ad: { id: 'flyer' } });
+    expect(committedExpenses(s)).toBe(committedExpenses(night(22)) + CONFIG.adFlyer.price);
+    s = run(s, { type: 'END_NIGHT' });
+    expect(s.adToday?.id).toBe('flyer');
+    expect(s.adNext).toBeUndefined();
+    expect(s.queue.length).toBeGreaterThan(plain.queue.length);
+  });
+
+  it('focuses walk-in items on the advertised category', () => {
+    let s = run(night(23), { type: 'SET_AD', ad: { id: 'buy', category: 'camera' } }, { type: 'END_NIGHT' });
+    const cams = s.queue.filter((c) => !c.ticket && !c.storyId && c.item && itemDef(c.item.defId).category === 'camera').length;
+    expect(cams).toBeGreaterThanOrEqual(3);
+    expect(dispatch(night(23), { type: 'SET_AD', ad: { id: 'buy', category: 'blade' } }).message).toMatch(/品目/);
+  });
+
+  it('lends from the bank within the limit and accrues daily interest', () => {
+    let s = run(night(24), { type: 'BORROW', amount: 10_000_000 });
+    expect(s.bankLoan).toBe(bankLimit(s));
+    const owed = s.bankLoan!;
+    s = run(s, { type: 'END_NIGHT' });
+    expect(s.bankLoan).toBe(owed + Math.round((owed * CONFIG.bankDailyRate) / 100) * 100);
+    s = run(s, { type: 'BEGIN_COUNTER' }, { type: 'CLOSE_SHOP' }, { type: 'REPAY_BANK', amount: 50_000 });
+    expect(s.bankLoan).toBe(owed + Math.round((owed * CONFIG.bankDailyRate) / 100) * 100 - 50_000);
+  });
+
+  it('adds unpaid bank loans to the debt at the end', () => {
+    let s = night(25);
+    s = { ...s, day: CONFIG.totalDays, money: 10_000, debt: 0, bankLoan: 100_000, expenses: [] };
+    s = run(s, { type: 'END_NIGHT' });
+    expect(s.phase).toBe('ending');
+    expect(s.debt).toBe(101_000 - 10_000); // 最後の夜の利息がついてから取り立てられる
+  });
+
+  it('lets a hired clerk settle due pawn tickets before opening', () => {
+    let s = night(26);
+    s = run(s, { type: 'HIRE_CLERK' });
+    const c = newGame(26).queue.find((q) => !q.storyId && !q.ticket)!;
+    s.loans.push({
+      ticketNo: 99, customer: c, item: makeItem(s, new Rng(1), 'ring_k18'), principal: 20_000, rate: 0.1,
+      issuedDay: 1, dueDay: 2, status: 'active', extensions: 0, pendingVisit: 'redeem',
+    });
+    s = run(s, { type: 'END_NIGHT' });
+    expect(s.loans.find((l) => l.ticketNo === 99)?.status).toBe('redeemed');
+    expect(s.queue.some((q) => q.ticket?.ticketNo === 99)).toBe(false);
+    expect(s.morning.notes.some((n) => n.startsWith('店員：'))).toBe(true);
+    s = run(s, { type: 'BEGIN_COUNTER' }, { type: 'CLOSE_SHOP' });
+    expect(s.expenses.find((e) => e.id === 'wage')?.amount).toBe(CONFIG.clerkWage);
   });
 });
 

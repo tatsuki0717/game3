@@ -187,7 +187,22 @@ export interface InventoryItem {
   cost: number;
   shelved: boolean;
   price: number;
-  source: 'forfeit' | 'bought' | 'story';
+  source: 'forfeit' | 'bought' | 'story' | 'dealer';
+}
+
+/** 夜に古物業者が持ってくる仕入れ品 */
+export interface DealerLot {
+  item: ItemInstance;
+  price: number;
+}
+
+export type AdId = 'none' | 'flyer' | 'buy' | 'sale';
+
+/** 翌日の広告（夜に出稿し、翌日に効く） */
+export interface AdPlan {
+  id: AdId;
+  /** 'buy'（高価買取チラシ）で強化するカテゴリ */
+  category?: Category;
 }
 
 export interface Loan {
@@ -325,5 +340,15 @@ export interface GameState {
   history: { day: number; money: number; debt: number }[];
   /** 本日の応対結果（夜の日報用。古いセーブには無い） */
   todayLog?: DayLog;
+  /** 以下は経営要素の拡張。古いセーブには無いので未定義を初期値として扱う */
+  /** 今夜の業者の仕入れ品 */
+  dealerLots?: DealerLot[];
+  /** 今日に効いている広告と、今夜出稿して翌日に効く広告 */
+  adToday?: AdPlan;
+  adNext?: AdPlan;
+  /** 店員を雇っているか */
+  clerk?: boolean;
+  /** 信用金庫からの借入残高 */
+  bankLoan?: number;
   ending?: EndingId;
 }
