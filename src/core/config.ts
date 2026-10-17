@@ -12,7 +12,7 @@ export const CONFIG = {
   startDebt: 1_000_000,
   startReputation: 50,
   /** 定期返済（日 → 金額）。残りは 30 日目の夜に一括 */
-  installments: { 7: 50_000, 14: 100_000, 21: 150_000, 28: 200_000 } as Record<number, number>,
+  installments: { 7: 80_000, 14: 120_000, 21: 160_000, 28: 240_000 } as Record<number, number>,
 
   loanTermDays: 5,
   defaultRate: 0.1,

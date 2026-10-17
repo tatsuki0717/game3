@@ -300,10 +300,12 @@ describe('pixel icons', () => {
 });
 
 describe('balance', () => {
-  it('a careful bot can finish the 30 days', () => {
-    const endings = [1002, 1003, 1004].map((seed) => playthrough(seed, 'careful').ending);
-    expect(endings.filter((e) => e === 'revival' || e === 'cold_lender' || e === 'town_light').length).toBeGreaterThanOrEqual(1);
-  }, 60_000);
+  it('a careful bot can still finish some of the 30 days, but not most', () => {
+    const endings = Array.from({ length: 10 }, (_, i) => playthrough(1000 + i, 'careful').ending);
+    const cleared = endings.filter((e) => e === 'revival' || e === 'cold_lender' || e === 'town_light').length;
+    expect(cleared).toBeGreaterThanOrEqual(2);
+    expect(cleared).toBeLessThanOrEqual(7);
+  }, 120_000);
 
   it('a naive bot that pays any asking price goes under', () => {
     const s = playthrough(2000, 'naive');
