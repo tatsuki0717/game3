@@ -19,7 +19,7 @@ export interface Difficulty {
 export function difficulty(day: number): Difficulty {
   const t = Math.min(1, (day - 1) / 22);
   return {
-    customers: Math.round(7 + t * 7),
+    customers: Math.round(8 + t * 11),
     fake: day < 2 ? 0.05 : 0.1 + t * 0.1,
     stolen: day < 2 ? 0 : 0.06 + t * 0.05,
     expired: 0.04 + t * 0.02,
